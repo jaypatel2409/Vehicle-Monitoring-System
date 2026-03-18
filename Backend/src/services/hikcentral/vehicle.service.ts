@@ -23,42 +23,42 @@ import { processVehicleEvent } from '../vehicle.service';
  * Normalized format returned to the dashboard / socket clients.
  */
 export interface VehicleCrossRecord {
-    plateNo: string;
-    vehicleType: string;
-    cameraName: string;
-    /** 'IN' for entry cameras, 'OUT' for exit cameras */
-    direction: 'IN' | 'OUT';
-    passTime: string;   // ISO timestamp
-    imageUrl: string;
-    tagColor: string;   // YELLOW=KC, GREEN=SEZ — real value from API
+  plateNo: string;
+  vehicleType: string;
+  cameraName: string;
+  /** 'IN' for entry cameras, 'OUT' for exit cameras */
+  direction: 'IN' | 'OUT';
+  passTime: string;   // ISO timestamp
+  imageUrl: string;
+  tagColor: string;   // YELLOW=KC, GREEN=SEZ — real value from API
 }
 
 // ── API request / response shapes ─────────────────────────────────────────────
 
 interface CrossRecordsBody {
-    pageNo: number;
-    pageSize: number;
-    startTime?: string;
-    endTime?: string;
-    /** Optional: filter by a specific camera */
-    cameraIndexCode?: string;
+  pageNo: number;
+  pageSize: number;
+  startTime?: string;
+  endTime?: string;
+  /** Optional: filter by a specific camera */
+  cameraIndexCode?: string;
 }
 
 interface CrossRecordRaw {
-    [key: string]: unknown;
+  [key: string]: unknown;
 }
 
 interface ArtemisPagedResponse<T> {
-    code: string | number;
-    msg?: string;
-    message?: string;
-    data?: {
-        total?: number;
-        pageNo?: number;
-        pageSize?: number;
-        list?: T[];
-        rows?: T[];
-    };
+  code: string | number;
+  msg?: string;
+  message?: string;
+  data?: {
+    total?: number;
+    pageNo?: number;
+    pageSize?: number;
+    list?: T[];
+    rows?: T[];
+  };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -90,9 +90,9 @@ function normalizeRecord(raw: CrossRecordRaw): VehicleCrossRecord | null {
 
   // crossTime is the actual field name returned by the API
   const passTime = String(
-    raw.crossTime  ??
-    raw.passTime   ??
-    raw.eventTime  ??
+    raw.crossTime ??
+    raw.passTime ??
+    raw.eventTime ??
     '',
   ).trim();
 
@@ -107,23 +107,23 @@ function normalizeRecord(raw: CrossRecordRaw): VehicleCrossRecord | null {
 
   // Use real tagColor from API — YELLOW=KC, GREEN=SEZ
   const tagColor = String(
-    raw.tagColor   ??
-    raw.tag_color  ??
+    raw.tagColor ??
+    raw.tag_color ??
     raw.plateColor ??
     'GREEN'
   ).toUpperCase();
 
   const imageUrl = String(
-    raw.vehiclePicUri    ??
-    raw.vehicle_pic_uri  ??
+    raw.vehiclePicUri ??
+    raw.vehicle_pic_uri ??
     '',
   );
 
   return {
     plateNo,
     vehicleType: String(raw.vehicleType ?? 'Unknown'),
-    cameraName:  cameraMeta.name,
-    direction:   cameraMeta.direction === 'ENTRY' ? 'IN' : 'OUT',
+    cameraName: cameraMeta.name,
+    direction: cameraMeta.direction === 'ENTRY' ? 'IN' : 'OUT',
     passTime,
     imageUrl,
     tagColor,
@@ -133,12 +133,12 @@ function normalizeRecord(raw: CrossRecordRaw): VehicleCrossRecord | null {
 // ── fetchCrossRecords ─────────────────────────────────────────────────────────
 
 export interface FetchCrossRecordsParams {
-    pageNo?: number;
-    pageSize?: number;
-    startTime?: string;
-    endTime?: string;
-    /** Optional — filter by a specific camera index code */
-    cameraIndexCode?: string;
+  pageNo?: number;
+  pageSize?: number;
+  startTime?: string;
+  endTime?: string;
+  /** Optional — filter by a specific camera index code */
+  cameraIndexCode?: string;
 }
 
 /**
@@ -146,62 +146,62 @@ export interface FetchCrossRecordsParams {
  * Returns normalized VehicleCrossRecord[].
  */
 export async function fetchCrossRecords(
-    params: FetchCrossRecordsParams = {},
+  params: FetchCrossRecordsParams = {},
 ): Promise<VehicleCrossRecord[]> {
-    const apiPath = hikCentralConfig.vehicleEventsPath; // /api/pms/v1/crossRecords/page
+  const apiPath = hikCentralConfig.vehicleEventsPath; // /api/pms/v1/crossRecords/page
 
-    const body: CrossRecordsBody = {
-        pageNo: params.pageNo ?? 1,
-        pageSize: params.pageSize ?? hikCentralConfig.pageSize,
-    };
+  const body: CrossRecordsBody = {
+    pageNo: params.pageNo ?? 1,
+    pageSize: params.pageSize ?? hikCentralConfig.pageSize,
+  };
 
-    if (params.startTime) body.startTime = params.startTime;
-    if (params.endTime) body.endTime = params.endTime;
-    if (params.cameraIndexCode) body.cameraIndexCode = params.cameraIndexCode;
+  if (params.startTime) body.startTime = params.startTime;
+  if (params.endTime) body.endTime = params.endTime;
+  if (params.cameraIndexCode) body.cameraIndexCode = params.cameraIndexCode;
 
-    const bodyString = JSON.stringify(body);
+  const bodyString = JSON.stringify(body);
 
-    logger.info('[VehicleService] fetchCrossRecords', {
-        apiPath,
-        pageNo: body.pageNo,
-        pageSize: body.pageSize,
-        startTime: body.startTime,
-        endTime: body.endTime,
-    });
+  logger.info('[VehicleService] fetchCrossRecords', {
+    apiPath,
+    pageNo: body.pageNo,
+    pageSize: body.pageSize,
+    startTime: body.startTime,
+    endTime: body.endTime,
+  });
 
-    const response = await artemisClient.request<ArtemisPagedResponse<CrossRecordRaw>>({
-        method: 'POST',
-        url: apiPath,
-        data: bodyString,
-    });
+  const response = await artemisClient.request<ArtemisPagedResponse<CrossRecordRaw>>({
+    method: 'POST',
+    url: apiPath,
+    data: bodyString,
+  });
 
-    const payload = response.data;
+  const payload = response.data;
 
-    // Check HikCentral application-level code
-    const code = payload?.code;
-    if (code !== undefined && code !== 0 && code !== '0' && code !== 200 && code !== '200') {
-        const msg = payload?.msg ?? payload?.message ?? 'Unknown error';
-        logger.error('[VehicleService] HikCentral returned error code', { code, msg, apiPath });
-        throw new Error(`HikCentral API error — code=${code}: ${msg}`);
-    }
+  // Check HikCentral application-level code
+  const code = payload?.code;
+  if (code !== undefined && code !== 0 && code !== '0' && code !== 200 && code !== '200') {
+    const msg = payload?.msg ?? payload?.message ?? 'Unknown error';
+    logger.error('[VehicleService] HikCentral returned error code', { code, msg, apiPath });
+    throw new Error(`HikCentral API error — code=${code}: ${msg}`);
+  }
 
-    const rawList: CrossRecordRaw[] =
-        payload?.data?.list ??
-        payload?.data?.rows ??
-        (Array.isArray((payload as any)?.list) ? (payload as any).list : []);
+  const rawList: CrossRecordRaw[] =
+    payload?.data?.list ??
+    payload?.data?.rows ??
+    (Array.isArray((payload as any)?.list) ? (payload as any).list : []);
 
-    const records = rawList
-        .filter((r): r is CrossRecordRaw => r != null && typeof r === 'object')
-        .map(normalizeRecord)
-        .filter((r): r is VehicleCrossRecord => r !== null);
+  const records = rawList
+    .filter((r): r is CrossRecordRaw => r != null && typeof r === 'object')
+    .map(normalizeRecord)
+    .filter((r): r is VehicleCrossRecord => r !== null);
 
-    logger.info('[VehicleService] fetchCrossRecords result', {
-        rawCount: rawList.length,
-        normalizedCount: records.length,
-        apiPath,
-    });
+  logger.info('[VehicleService] fetchCrossRecords result', {
+    rawCount: rawList.length,
+    normalizedCount: records.length,
+    apiPath,
+  });
 
-    return records;
+  return records;
 }
 
 // ── Polling ───────────────────────────────────────────────────────────────────
@@ -221,31 +221,31 @@ let lastWindowEndMs: number | null = null;
  * @param intervalMs  Polling interval in ms (default: from config, typically 10_000).
  */
 export function startPolling(io: SocketIOServer, intervalMs?: number): void {
-    if (pollingActive) {
-        logger.warn('[VehicleService] Polling already active — ignoring duplicate startPolling() call');
-        return;
-    }
+  if (pollingActive) {
+    logger.warn('[VehicleService] Polling already active — ignoring duplicate startPolling() call');
+    return;
+  }
 
-    const interval = intervalMs ?? hikCentralConfig.pollIntervalMs;
-    pollingActive = true;
+  const interval = intervalMs ?? hikCentralConfig.pollIntervalMs;
+  pollingActive = true;
 
-    logger.info('[VehicleService] Starting HikCentral cross-records polling', { intervalMs: interval });
+  logger.info('[VehicleService] Starting HikCentral cross-records polling', { intervalMs: interval });
 
-    // Poll immediately on start, then schedule repeating interval
-    runPoll(io);
-    pollingTimer = setInterval(() => runPoll(io), interval);
+  // Poll immediately on start, then schedule repeating interval
+  runPoll(io);
+  pollingTimer = setInterval(() => runPoll(io), interval);
 }
 
 /**
  * Stop the polling loop.
  */
 export function stopPolling(): void {
-    pollingActive = false;
-    if (pollingTimer) {
-        clearInterval(pollingTimer);
-        pollingTimer = null;
-    }
-    logger.info('[VehicleService] Polling stopped');
+  pollingActive = false;
+  if (pollingTimer) {
+    clearInterval(pollingTimer);
+    pollingTimer = null;
+  }
+  logger.info('[VehicleService] Polling stopped');
 }
 
 async function runPoll(io: SocketIOServer): Promise<void> {
@@ -267,7 +267,7 @@ async function runPoll(io: SocketIOServer): Promise<void> {
 
   // Use IST format required by HikCentral API
   const startTime = toHikCentralTime(new Date(windowStartMs));
-  const endTime   = toHikCentralTime(new Date(windowEndMs));
+  const endTime = toHikCentralTime(new Date(windowEndMs));
 
   const pageSize = hikCentralConfig.pageSize;
   const maxPages = hikCentralConfig.maxPagesPerPoll;
@@ -302,12 +302,12 @@ async function runPoll(io: SocketIOServer): Promise<void> {
         for (const record of records) {
           try {
             const hikEvent = {
-              plateNo:         record.plateNo,
-              eventType:       record.direction,
-              eventTime:       record.passTime,
-              tagColor:        record.tagColor,   // real value, not hardcoded
-              gateName:        cameraMeta.gate,
-              cameraName:      record.cameraName,
+              plateNo: record.plateNo,
+              eventType: record.direction,
+              eventTime: record.passTime,
+              tagColor: record.tagColor,   // real value, not hardcoded
+              gateName: cameraMeta.gate,
+              cameraName: record.cameraName,
               cameraIndexCode,
             };
 
@@ -322,16 +322,16 @@ async function runPoll(io: SocketIOServer): Promise<void> {
             }
 
             io.emit('vehicle:event', {
-              plateNo:    record.plateNo,
+              plateNo: record.plateNo,
               cameraName: record.cameraName,
-              direction:  record.direction,
-              passTime:   record.passTime,
+              direction: record.direction,
+              passTime: record.passTime,
             } satisfies Partial<VehicleCrossRecord>);
 
           } catch (innerErr) {
             logger.error('[VehicleService] Failed to process record', {
               plateNo: record.plateNo,
-              error:   (innerErr as Error)?.message,
+              error: (innerErr as Error)?.message,
             });
           }
         }
@@ -342,7 +342,7 @@ async function runPoll(io: SocketIOServer): Promise<void> {
     }
 
     // Success — advance the time window
-    lastWindowEndMs     = windowEndMs;
+    lastWindowEndMs = windowEndMs;
     consecutiveFailures = 0;
 
     logger.info('[VehicleService] Poll complete', {

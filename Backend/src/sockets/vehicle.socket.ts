@@ -2,23 +2,27 @@ import { Server as SocketIOServer } from 'socket.io';
 import { getDashboardStats } from '../services/vehicle.service';
 
 /**
- * Initialize vehicle monitoring socket events
+ * Broadcast the latest dashboard stats to ALL connected clients.
+ * Called both by the periodic interval and directly by the polling service
+ * after it has finished saving new vehicle events.
+ */
+export async function broadcastStatsNow(io: SocketIOServer): Promise<void> {
+  try {
+    const stats = await getDashboardStats();
+    io.emit('dashboard:stats', stats);
+  } catch (error) {
+    console.error('Error broadcasting stats:', error);
+  }
+}
+
+/**
+ * Initialize vehicle monitoring socket events.
  */
 export function initializeVehicleSocket(io: SocketIOServer): void {
-  // Emit dashboard stats to all connected clients
-  const broadcastStats = async () => {
-    try {
-      const stats = await getDashboardStats();
-      io.emit('dashboard:stats', stats);
-    } catch (error) {
-      console.error('Error broadcasting stats:', error);
-    }
-  };
+  // Broadcast stats periodically — 15 s is enough to keep dashboards fresh
+  // without hammering the DB with unnecessary COUNT queries.
+  setInterval(() => broadcastStatsNow(io), 15_000);
 
-  // Broadcast stats periodically (every 5 seconds)
-  setInterval(broadcastStats, 5000);
-
-  // Also broadcast on connection
   io.on('connection', async (socket) => {
     console.log(`🔌 Vehicle monitoring client connected: ${socket.id}`);
 
@@ -30,7 +34,7 @@ export function initializeVehicleSocket(io: SocketIOServer): void {
       console.error('Error sending initial stats:', error);
     }
 
-    // Handle client requests for stats
+    // Handle client-side requests for a stats refresh
     socket.on('dashboard:request-stats', async () => {
       try {
         const stats = await getDashboardStats();
@@ -46,4 +50,3 @@ export function initializeVehicleSocket(io: SocketIOServer): void {
     });
   });
 }
-

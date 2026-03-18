@@ -24,11 +24,13 @@ export interface HikCentralVehicleEvent {
   plateNo: string;
   eventType: 'IN' | 'OUT';
   eventTime: string; // ISO timestamp string from HikCentral
-  tagColor: string;
+  tagColor: string;  // required — used to derive category (GREEN → SEZ, else KC)
   ownerName?: string;
   gateName?: string;
   cameraIndexCode?: string;
   cameraName?: string;
+  vehicleType?: string;
+  imageUrl?: string;
 
   // Allow forward compatibility with additional HikCentral fields without breaking parsing.
   [key: string]: unknown;
@@ -49,4 +51,3 @@ export function extractPagedList<T>(data: unknown): T[] | null {
 
   return null;
 }
-

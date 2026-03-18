@@ -15,23 +15,26 @@ export interface ReportFilters {
 }
 
 /**
- * Fetch report data from database
+ * Fetch report data from database.
+ * Includes camera_name and camera_index_code from vehicle_events.
  */
 async function getReportData(filters: ReportFilters) {
   let sql = `
-    SELECT 
+    SELECT
       ve.id,
       ve.vehicle_number,
       ve.category,
       ve.direction,
       ve.event_time,
       ve.gate_name,
+      ve.camera_name,
+      ve.camera_index_code,
       v.owner_name
     FROM vehicle_events ve
     LEFT JOIN vehicles v ON ve.vehicle_number = v.vehicle_number
     WHERE 1=1
   `;
-  const params: any[] = [];
+  const params: unknown[] = [];
   let paramIndex = 1;
 
   if (filters.startDate) {
@@ -77,7 +80,7 @@ async function getReportData(filters: ReportFilters) {
 }
 
 /**
- * Generate CSV report
+ * Generate CSV report (includes camera_name column)
  */
 export async function generateCSVReport(
   filters: ReportFilters,
@@ -88,24 +91,26 @@ export async function generateCSVReport(
   const csvWriter = createObjectCsvWriter({
     path: outputPath,
     header: [
-      { id: 'id', title: 'ID' },
-      { id: 'vehicle_number', title: 'Vehicle Number' },
-      { id: 'owner_name', title: 'Owner Name' },
-      { id: 'category', title: 'Category' },
-      { id: 'direction', title: 'Direction' },
-      { id: 'gate_name', title: 'Gate Name' },
-      { id: 'event_time', title: 'Event Time' },
+      { id: 'id',              title: 'ID' },
+      { id: 'vehicle_number',  title: 'Vehicle Number' },
+      { id: 'owner_name',      title: 'Owner Name' },
+      { id: 'category',        title: 'Category' },
+      { id: 'direction',       title: 'Direction' },
+      { id: 'gate_name',       title: 'Gate Name' },
+      { id: 'camera_name',     title: 'Camera Name' },
+      { id: 'event_time',      title: 'Event Time' },
     ],
   });
 
   const records = data.map((row: any) => ({
-    id: row.id,
+    id:             row.id,
     vehicle_number: row.vehicle_number,
-    owner_name: row.owner_name || 'N/A',
-    category: row.category,
-    direction: row.direction,
-    gate_name: row.gate_name || 'Unknown',
-    event_time: new Date(row.event_time).toISOString(),
+    owner_name:     row.owner_name || 'N/A',
+    category:       row.category,
+    direction:      row.direction,
+    gate_name:      row.gate_name || 'Unknown',
+    camera_name:    row.camera_name || 'N/A',
+    event_time:     new Date(row.event_time).toISOString(),
   }));
 
   await csvWriter.writeRecords(records);
@@ -113,7 +118,7 @@ export async function generateCSVReport(
 }
 
 /**
- * Generate Excel report
+ * Generate Excel report (includes camera_name column)
  */
 export async function generateExcelReport(
   filters: ReportFilters,
@@ -126,13 +131,14 @@ export async function generateExcelReport(
 
   // Add headers
   worksheet.columns = [
-    { header: 'ID', key: 'id', width: 10 },
+    { header: 'ID',             key: 'id',             width: 10 },
     { header: 'Vehicle Number', key: 'vehicle_number', width: 20 },
-    { header: 'Owner Name', key: 'owner_name', width: 25 },
-    { header: 'Category', key: 'category', width: 10 },
-    { header: 'Direction', key: 'direction', width: 10 },
-    { header: 'Gate Name', key: 'gate_name', width: 20 },
-    { header: 'Event Time', key: 'event_time', width: 25 },
+    { header: 'Owner Name',     key: 'owner_name',     width: 25 },
+    { header: 'Category',       key: 'category',       width: 10 },
+    { header: 'Direction',      key: 'direction',      width: 10 },
+    { header: 'Gate Name',      key: 'gate_name',      width: 20 },
+    { header: 'Camera Name',    key: 'camera_name',    width: 25 },
+    { header: 'Event Time',     key: 'event_time',     width: 25 },
   ];
 
   // Style header row
@@ -146,13 +152,14 @@ export async function generateExcelReport(
   // Add data rows
   data.forEach((row: any) => {
     worksheet.addRow({
-      id: row.id,
+      id:             row.id,
       vehicle_number: row.vehicle_number,
-      owner_name: row.owner_name || 'N/A',
-      category: row.category,
-      direction: row.direction,
-      gate_name: row.gate_name || 'Unknown',
-      event_time: new Date(row.event_time),
+      owner_name:     row.owner_name || 'N/A',
+      category:       row.category,
+      direction:      row.direction,
+      gate_name:      row.gate_name || 'Unknown',
+      camera_name:    row.camera_name || 'N/A',
+      event_time:     new Date(row.event_time),
     });
   });
 
@@ -161,7 +168,7 @@ export async function generateExcelReport(
 }
 
 /**
- * Generate PDF report
+ * Generate PDF report (includes camera_name column)
  */
 export async function generatePDFReport(
   filters: ReportFilters,
@@ -195,55 +202,48 @@ export async function generatePDFReport(
     doc.text(`Total Records: ${data.length}`);
     doc.moveDown();
 
-    // Table header
-    const tableTop = doc.y;
+    // Table layout — camera_name takes a share from previously unused space
+    const tableTop  = doc.y;
     const itemHeight = 20;
-    const pageWidth = doc.page.width - 100;
+    const pageWidth  = doc.page.width - 100;
     const colWidths = {
-      vehicle: pageWidth * 0.25,
-      owner: pageWidth * 0.25,
-      category: pageWidth * 0.1,
-      direction: pageWidth * 0.1,
-      gate: pageWidth * 0.15,
-      time: pageWidth * 0.15,
+      vehicle:  pageWidth * 0.20,
+      owner:    pageWidth * 0.20,
+      category: pageWidth * 0.08,
+      direction: pageWidth * 0.08,
+      gate:     pageWidth * 0.14,
+      camera:   pageWidth * 0.16,
+      time:     pageWidth * 0.14,
     };
 
     // Draw header
     doc.fontSize(10).font('Helvetica-Bold');
     let x = 50;
-    doc.text('Vehicle', x, tableTop, { width: colWidths.vehicle });
-    x += colWidths.vehicle;
-    doc.text('Owner', x, tableTop, { width: colWidths.owner });
-    x += colWidths.owner;
-    doc.text('Category', x, tableTop, { width: colWidths.category });
-    x += colWidths.category;
-    doc.text('Direction', x, tableTop, { width: colWidths.direction });
-    x += colWidths.direction;
-    doc.text('Gate', x, tableTop, { width: colWidths.gate });
-    x += colWidths.gate;
-    doc.text('Time', x, tableTop, { width: colWidths.time });
+    doc.text('Vehicle',   x, tableTop, { width: colWidths.vehicle });   x += colWidths.vehicle;
+    doc.text('Owner',     x, tableTop, { width: colWidths.owner });     x += colWidths.owner;
+    doc.text('Category',  x, tableTop, { width: colWidths.category });  x += colWidths.category;
+    doc.text('Direction', x, tableTop, { width: colWidths.direction }); x += colWidths.direction;
+    doc.text('Gate',      x, tableTop, { width: colWidths.gate });      x += colWidths.gate;
+    doc.text('Camera',    x, tableTop, { width: colWidths.camera });    x += colWidths.camera;
+    doc.text('Time',      x, tableTop, { width: colWidths.time });
 
     // Draw data rows
     doc.font('Helvetica');
     let y = tableTop + itemHeight;
-    data.forEach((row: any, index: number) => {
+    data.forEach((row: any) => {
       if (y > doc.page.height - 50) {
         doc.addPage();
         y = 50;
       }
 
       x = 50;
-      doc.text(row.vehicle_number || 'N/A', x, y, { width: colWidths.vehicle });
-      x += colWidths.vehicle;
-      doc.text(row.owner_name || 'N/A', x, y, { width: colWidths.owner });
-      x += colWidths.owner;
-      doc.text(row.category, x, y, { width: colWidths.category });
-      x += colWidths.category;
-      doc.text(row.direction, x, y, { width: colWidths.direction });
-      x += colWidths.direction;
-      doc.text(row.gate_name || 'Unknown', x, y, { width: colWidths.gate });
-      x += colWidths.gate;
-      doc.text(new Date(row.event_time).toLocaleString(), x, y, { width: colWidths.time });
+      doc.text(row.vehicle_number || 'N/A',                    x, y, { width: colWidths.vehicle });   x += colWidths.vehicle;
+      doc.text(row.owner_name || 'N/A',                        x, y, { width: colWidths.owner });     x += colWidths.owner;
+      doc.text(row.category,                                    x, y, { width: colWidths.category });  x += colWidths.category;
+      doc.text(row.direction,                                   x, y, { width: colWidths.direction }); x += colWidths.direction;
+      doc.text(row.gate_name || 'Unknown',                      x, y, { width: colWidths.gate });      x += colWidths.gate;
+      doc.text(row.camera_name || 'N/A',                        x, y, { width: colWidths.camera });    x += colWidths.camera;
+      doc.text(new Date(row.event_time).toLocaleString(),       x, y, { width: colWidths.time });
 
       y += itemHeight;
     });
@@ -254,4 +254,3 @@ export async function generatePDFReport(
     stream.on('error', reject);
   });
 }
-
