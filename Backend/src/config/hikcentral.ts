@@ -81,7 +81,7 @@ export const hikCentralConfig: HikCentralConfig = (() => {
 
       vehicleEventsPath:
         process.env.HIKCENTRAL_VEHICLE_EVENTS_PATH ||
-        "/api/pms/v1/crossRecords/page",
+        '/artemis/api/pms/v1/crossRecords/page',
 
       pageSize: envInt(process.env.HIKCENTRAL_PAGE_SIZE, 50),
       maxPagesPerPoll: envInt(process.env.HIKCENTRAL_MAX_PAGES_PER_POLL, 20),
@@ -129,7 +129,7 @@ export const hikCentralConfig: HikCentralConfig = (() => {
 
     vehicleEventsPath:
       process.env.HIKCENTRAL_VEHICLE_EVENTS_PATH ||
-      "/api/pms/v1/crossRecords/page",
+      '/artemis/api/pms/v1/crossRecords/page',
 
     pageSize: envInt(process.env.HIKCENTRAL_PAGE_SIZE, 50),
     maxPagesPerPoll: envInt(process.env.HIKCENTRAL_MAX_PAGES_PER_POLL, 20),

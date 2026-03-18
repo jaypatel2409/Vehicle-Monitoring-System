@@ -12,7 +12,7 @@
 
 import { Server as SocketIOServer } from 'socket.io';
 import hikCentralConfig from '../../config/hikcentral';
-import { ANPR_CAMERAS } from '../../config/anprCameras';
+import { ANPR_CAMERAS, ANPR_CAMERA_INDEX_CODES } from '../../config/anprCameras';
 import { artemisClient } from './client';
 import { logger } from '../../utils/logger';
 import { processVehicleEvent } from '../vehicle.service';
@@ -30,6 +30,7 @@ export interface VehicleCrossRecord {
     direction: 'IN' | 'OUT';
     passTime: string;   // ISO timestamp
     imageUrl: string;
+    tagColor: string;   // YELLOW=KC, GREEN=SEZ — real value from API
 }
 
 // ── API request / response shapes ─────────────────────────────────────────────
@@ -60,51 +61,73 @@ interface ArtemisPagedResponse<T> {
     };
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Convert a Date to the IST (UTC+05:30) ISO 8601 string required by HikCentral:
+ *   yyyy-MM-ddTHH:mm:ss+05:30
+ */
+function toHikCentralTime(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const ist = new Date(date.getTime() + istOffset);
+  return (
+    `${ist.getUTCFullYear()}-` +
+    `${pad(ist.getUTCMonth() + 1)}-` +
+    `${pad(ist.getUTCDate())}T` +
+    `${pad(ist.getUTCHours())}:` +
+    `${pad(ist.getUTCMinutes())}:` +
+    `${pad(ist.getUTCSeconds())}+05:30`
+  );
+}
+
 // ── Normalizer ────────────────────────────────────────────────────────────────
 
 function normalizeRecord(raw: CrossRecordRaw): VehicleCrossRecord | null {
-    // plateNo — try all common field names used by HikCentral crossRecords API
-    const plateNo = String(
-        raw.plateNo ?? raw.plate_no ?? raw.vehicleNumber ?? raw.vehicle_number ?? '',
-    ).trim();
+  const plateNo = String(
+    raw.plateNo ?? raw.plate_no ?? raw.vehicleNumber ?? '',
+  ).trim();
 
-    // passTime — crossRecords API returns `passTime` (ISO or epoch string)
-    const passTime = String(
-        raw.passTime ?? raw.pass_time ?? raw.crossTime ?? raw.cross_time ??
-        raw.eventTime ?? raw.event_time ?? raw.captureTime ?? raw.capture_time ?? '',
-    ).trim();
+  // crossTime is the actual field name returned by the API
+  const passTime = String(
+    raw.crossTime  ??
+    raw.passTime   ??
+    raw.eventTime  ??
+    '',
+  ).trim();
 
-    const cameraIndexCode = String(
-        raw.cameraIndexCode ?? raw.cameraIndexcode ?? raw.camera_index_code ?? '',
-    ).trim();
+  const cameraIndexCode = String(
+    raw.cameraIndexCode ?? raw.camera_index_code ?? '',
+  ).trim();
 
-    if (!plateNo || !passTime || !cameraIndexCode) {
-        return null;
-    }
+  if (!plateNo || !passTime || !cameraIndexCode) return null;
 
-    // Look up camera metadata from our ANPR_CAMERAS registry
-    const cameraMeta = ANPR_CAMERAS[cameraIndexCode];
-    if (!cameraMeta) {
-        // Unknown camera — skip silently. Add it to anprCameras.ts if needed.
-        return null;
-    }
+  const cameraMeta = ANPR_CAMERAS[cameraIndexCode];
+  if (!cameraMeta) return null;
 
-    const vehicleType = String(
-        raw.vehicleType ?? raw.vehicle_type ?? raw.vehicleKind ?? 'Unknown',
-    );
+  // Use real tagColor from API — YELLOW=KC, GREEN=SEZ
+  const tagColor = String(
+    raw.tagColor   ??
+    raw.tag_color  ??
+    raw.plateColor ??
+    'GREEN'
+  ).toUpperCase();
 
-    const imageUrl = String(
-        raw.vehiclePicUri ?? raw.vehicle_pic_uri ?? raw.plateImageUri ?? raw.imageUrl ?? '',
-    );
+  const imageUrl = String(
+    raw.vehiclePicUri    ??
+    raw.vehicle_pic_uri  ??
+    '',
+  );
 
-    return {
-        plateNo,
-        vehicleType,
-        cameraName: cameraMeta.name,
-        direction: cameraMeta.direction === 'ENTRY' ? 'IN' : 'OUT',
-        passTime,
-        imageUrl,
-    };
+  return {
+    plateNo,
+    vehicleType: String(raw.vehicleType ?? 'Unknown'),
+    cameraName:  cameraMeta.name,
+    direction:   cameraMeta.direction === 'ENTRY' ? 'IN' : 'OUT',
+    passTime,
+    imageUrl,
+    tagColor,
+  };
 }
 
 // ── fetchCrossRecords ─────────────────────────────────────────────────────────
@@ -226,103 +249,124 @@ export function stopPolling(): void {
 }
 
 async function runPoll(io: SocketIOServer): Promise<void> {
-    if (!pollingActive) return;
+  if (!pollingActive) return;
 
-    const now = Date.now();
-    if (now < cooldownUntilMs) {
-        logger.warn('[VehicleService] In backoff cooldown, skipping poll', {
-            remainingMs: cooldownUntilMs - now,
+  const now = Date.now();
+  if (now < cooldownUntilMs) {
+    logger.warn('[VehicleService] In backoff cooldown, skipping poll', {
+      remainingMs: cooldownUntilMs - now,
+    });
+    return;
+  }
+
+  const windowEndMs = Date.now();
+  const windowStartMs =
+    lastWindowEndMs !== null
+      ? lastWindowEndMs
+      : windowEndMs - hikCentralConfig.initialLookbackMs;
+
+  // Use IST format required by HikCentral API
+  const startTime = toHikCentralTime(new Date(windowStartMs));
+  const endTime   = toHikCentralTime(new Date(windowEndMs));
+
+  const pageSize = hikCentralConfig.pageSize;
+  const maxPages = hikCentralConfig.maxPagesPerPoll;
+  let totalProcessed = 0;
+
+  try {
+    // API accepts only ONE cameraIndexCode per request
+    // so we loop over all 4 ANPR cameras individually
+    for (const cameraIndexCode of ANPR_CAMERA_INDEX_CODES) {
+      const cameraMeta = ANPR_CAMERAS[cameraIndexCode];
+
+      logger.info('[VehicleService] Polling camera', {
+        cameraIndexCode,
+        name: cameraMeta.name,
+        startTime,
+        endTime,
+      });
+
+      let pageNo = 1;
+
+      while (pageNo <= maxPages) {
+        const records = await fetchCrossRecords({
+          pageNo,
+          pageSize,
+          startTime,
+          endTime,
+          cameraIndexCode,
         });
-        return;
-    }
 
-    const windowEndMs = Date.now();
-    const windowStartMs =
-        lastWindowEndMs !== null
-            ? lastWindowEndMs
-            : windowEndMs - hikCentralConfig.initialLookbackMs;
+        if (records.length === 0) break;
 
-    const startTime = new Date(windowStartMs).toISOString();
-    const endTime = new Date(windowEndMs).toISOString();
+        for (const record of records) {
+          try {
+            const hikEvent = {
+              plateNo:         record.plateNo,
+              eventType:       record.direction,
+              eventTime:       record.passTime,
+              tagColor:        record.tagColor,   // real value, not hardcoded
+              gateName:        cameraMeta.gate,
+              cameraName:      record.cameraName,
+              cameraIndexCode,
+            };
 
-    let pageNo = 1;
-    const pageSize = hikCentralConfig.pageSize;
-    const maxPages = hikCentralConfig.maxPagesPerPoll;
-    let totalProcessed = 0;
+            const saved = await processVehicleEvent(
+              hikEvent as any,
+              cameraMeta.gate
+            );
 
-    try {
-        while (pageNo <= maxPages) {
-            const records = await fetchCrossRecords({ pageNo, pageSize, startTime, endTime });
-
-            if (records.length === 0) break;
-
-            for (const record of records) {
-                try {
-                    // Persist to DB via existing vehicle service
-                    const hikEvent = {
-                        plateNo: record.plateNo,
-                        eventType: record.direction,
-                        eventTime: record.passTime,
-                        tagColor: 'GREEN' as string,
-                        gateName: ANPR_CAMERAS[
-                            Object.keys(ANPR_CAMERAS).find(
-                                (k) => ANPR_CAMERAS[k].name === record.cameraName,
-                            ) ?? ''
-                        ]?.gate ?? 'Unknown Gate',
-                        cameraName: record.cameraName,
-                        vehicleType: record.vehicleType,
-                        imageUrl: record.imageUrl,
-                    };
-
-                    const saved = await processVehicleEvent(hikEvent as any, hikEvent.gateName);
-
-                    if (saved) {
-                        totalProcessed++;
-                        // Emit the new vehicle to all connected dashboard clients
-                        io.emit('vehicle:new', saved);
-                    }
-
-                    // Also emit raw normalized record for live feed widgets
-                    io.emit('vehicle:event', {
-                        plateNo: record.plateNo,
-                        vehicleType: record.vehicleType,
-                        cameraName: record.cameraName,
-                        direction: record.direction,
-                        passTime: record.passTime,
-                        imageUrl: record.imageUrl,
-                    } satisfies VehicleCrossRecord);
-                } catch (innerErr) {
-                    logger.error('[VehicleService] Failed to process record (skipping)', {
-                        plateNo: record.plateNo,
-                        error: (innerErr as Error)?.message,
-                    });
-                }
+            if (saved) {
+              totalProcessed++;
+              io.emit('vehicle:new', saved);
             }
 
-            if (records.length < pageSize) break;
-            pageNo++;
+            io.emit('vehicle:event', {
+              plateNo:    record.plateNo,
+              cameraName: record.cameraName,
+              direction:  record.direction,
+              passTime:   record.passTime,
+            } satisfies Partial<VehicleCrossRecord>);
+
+          } catch (innerErr) {
+            logger.error('[VehicleService] Failed to process record', {
+              plateNo: record.plateNo,
+              error:   (innerErr as Error)?.message,
+            });
+          }
         }
 
-        // Successful poll — reset failure counter and advance window
-        lastWindowEndMs = windowEndMs;
-        consecutiveFailures = 0;
-
-        logger.info('[VehicleService] Poll complete', { totalProcessed, startTime, endTime });
-
-        if (totalProcessed > 0) {
-            io.emit('dashboard:stats-request');
-        }
-    } catch (err: any) {
-        consecutiveFailures++;
-        // Exponential backoff: 1s, 2s, 4s, 8s … capped at 60s
-        const backoffMs = Math.min(60_000, 1_000 * Math.pow(2, Math.min(6, consecutiveFailures - 1)));
-        cooldownUntilMs = Date.now() + backoffMs;
-
-        logger.error('[VehicleService] Poll failed — entering backoff', {
-            consecutiveFailures,
-            backoffMs,
-            error: err?.message,
-            code: err?.code,
-        });
+        if (records.length < pageSize) break;
+        pageNo++;
+      }
     }
+
+    // Success — advance the time window
+    lastWindowEndMs     = windowEndMs;
+    consecutiveFailures = 0;
+
+    logger.info('[VehicleService] Poll complete', {
+      totalProcessed,
+      startTime,
+      endTime,
+    });
+
+    if (totalProcessed > 0) {
+      io.emit('dashboard:stats-request');
+    }
+
+  } catch (err: any) {
+    consecutiveFailures++;
+    const backoffMs = Math.min(
+      60_000,
+      1_000 * Math.pow(2, Math.min(6, consecutiveFailures - 1))
+    );
+    cooldownUntilMs = Date.now() + backoffMs;
+
+    logger.error('[VehicleService] Poll failed — entering backoff', {
+      consecutiveFailures,
+      backoffMs,
+      error: err?.message,
+    });
+  }
 }
