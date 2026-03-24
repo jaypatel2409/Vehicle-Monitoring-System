@@ -100,7 +100,7 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
                     variant="secondary"
                     className={cn(
                       'font-medium',
-                      activity.stickerColor === 'yellow'
+                      activity.stickerColor === 'KC'
                         ? 'bg-yellow-sticker-light text-yellow-sticker-foreground border-yellow-sticker/30'
                         : 'bg-green-sticker-light text-green-sticker-foreground border-green-sticker/30'
                     )}
@@ -108,7 +108,7 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
                     <span
                       className={cn(
                         'w-2 h-2 rounded-full mr-1.5',
-                        activity.stickerColor === 'yellow' ? 'bg-yellow-sticker' : 'bg-green-sticker'
+                        activity.stickerColor === 'KC' ? 'bg-yellow-sticker' : 'bg-green-sticker'
                       )}
                     />
                     {activity.stickerColor.charAt(0).toUpperCase() + activity.stickerColor.slice(1)}

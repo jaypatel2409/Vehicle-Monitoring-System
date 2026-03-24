@@ -54,7 +54,7 @@ export interface InsideVehicle {
 export interface VehicleEvent {
   id: string;
   vehicleNumber: string;
-  stickerColor: 'yellow' | 'green';
+  stickerColor: 'KC' | 'SEZ';
   direction: 'IN' | 'OUT';
   gateName: string;
   cameraName?: string;

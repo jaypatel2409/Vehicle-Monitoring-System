@@ -1,7 +1,7 @@
 export interface VehicleActivity {
   id: string;
   vehicleNumber: string;
-  stickerColor: 'yellow' | 'green';
+  stickerColor: 'KC' | 'SEZ';
   direction: 'IN' | 'OUT';
   gateName: string;
   dateTime: string;
@@ -41,7 +41,7 @@ const generateMockActivities = (): VehicleActivity[] => {
   const gates = ['Main Gate', 'East Gate', 'West Gate', 'North Gate'];
   const activities: VehicleActivity[] = [];
   const now = new Date();
-  
+
   // Generate activities for the last 2 hours
   for (let i = 0; i < 50; i++) {
     const state = states[Math.floor(Math.random() * states.length)];
@@ -50,22 +50,22 @@ const generateMockActivities = (): VehicleActivity[] => {
     const letter2 = String.fromCharCode(65 + Math.floor(Math.random() * 26));
     const num2 = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
     const vehicleNumber = `${state}${num1}${letter1}${letter2}${num2}`;
-    
+
     // Random time in the last 2 hours
     const minutesAgo = Math.floor(Math.random() * 120);
     const eventTime = new Date(now.getTime() - minutesAgo * 60 * 1000);
     const dateTime = eventTime.toISOString().replace('T', ' ').substring(0, 19);
-    
+
     activities.push({
       id: String(i + 1),
       vehicleNumber,
-      stickerColor: Math.random() > 0.5 ? 'green' : 'yellow',
+      stickerColor: Math.random() > 0.5 ? 'SEZ' : 'KC',
       direction: Math.random() > 0.6 ? 'IN' : 'OUT',
       gateName: gates[Math.floor(Math.random() * gates.length)],
       dateTime,
     });
   }
-  
+
   // Sort by dateTime descending (most recent first)
   return activities.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
 };
