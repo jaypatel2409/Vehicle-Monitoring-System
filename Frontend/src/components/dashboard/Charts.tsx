@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LineChart, Line,
   BarChart, Bar,
@@ -8,12 +8,12 @@ import {
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import { Button } from '@/components/ui/button';
-import { Download, Loader2 } from 'lucide-react';
+import { Download, Loader2, Calendar } from 'lucide-react';
 import { apiClient } from '@/api/vehicleApi';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type DayOffset = 0 | 1 | 2;
+type TimeMode = 'today' | 'yesterday' | 'custom';
 
 interface HourlyPoint {
   hour: string;
@@ -32,17 +32,20 @@ interface DailyRow {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const DAY_LABELS: Record<DayOffset, string> = {
-  0: 'Today',
-  1: 'Yesterday',
-  2: '2 Days Ago',
-};
-
-function getDateRange(offset: DayOffset): { start: string; end: string } {
+function getPresetRange(mode: 'today' | 'yesterday'): { start: Date; end: Date } {
   const now = new Date();
-  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
-  const next = new Date(day); next.setDate(next.getDate() + 1);
-  return { start: day.toISOString(), end: next.toISOString() };
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (mode === 'today') {
+    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+    return { start: today, end: tomorrow };
+  } else {
+    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+    return { start: yesterday, end: today };
+  }
+}
+
+function toDateInputValue(d: Date): string {
+  return d.toISOString().substring(0, 10);
 }
 
 function buildHourlyBuckets(events: any[]): HourlyPoint[] {
@@ -81,22 +84,45 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 };
 
 // ── Traffic Line Chart ────────────────────────────────────────────────────────
-// Full-width chart with Today / Yesterday / 2 Days Ago toggle + PDF export
 
 export const TrafficLineChart: React.FC = () => {
-  const [dayOffset, setDayOffset] = useState<DayOffset>(0);
+  const [mode, setMode] = useState<TimeMode>('today');
+  const [customStart, setCustomStart] = useState<string>(() => toDateInputValue(new Date()));
+  const [customEnd, setCustomEnd] = useState<string>(() => toDateInputValue(new Date()));
   const [data, setData] = useState<HourlyPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const load = useCallback(async (offset: DayOffset) => {
+  // Derive the active date range from current mode/custom inputs
+  const getActiveDateRange = useCallback((): { start: Date; end: Date } | null => {
+    if (mode === 'today' || mode === 'yesterday') {
+      return getPresetRange(mode);
+    }
+    // Custom mode
+    if (!customStart || !customEnd) return null;
+    const start = new Date(customStart);
+    const end = new Date(customEnd);
+    end.setDate(end.getDate() + 1); // include the full end day
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return null;
+    return { start, end };
+  }, [mode, customStart, customEnd]);
+
+  const load = useCallback(async () => {
+    const range = getActiveDateRange();
+    if (!range) return;
+
     setLoading(true);
     setError(null);
     try {
-      const { start, end } = getDateRange(offset);
       const { data: res } = await apiClient.get('/api/vehicles/events', {
-        params: { startDate: start, endDate: end, limit: 2000, offset: 0 },
+        params: {
+          startDate: range.start.toISOString(),
+          endDate: range.end.toISOString(),
+          limit: 2000,
+          offset: 0,
+        },
       });
       if (!res.success) throw new Error(res.message);
       setData(buildHourlyBuckets(res.data));
@@ -105,55 +131,98 @@ export const TrafficLineChart: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [getActiveDateRange]);
 
-  useEffect(() => { load(dayOffset); }, [dayOffset, load]);
+  // Auto-refresh every 15 s for today view; manual for custom
+  useEffect(() => {
+    load();
 
+    if (intervalRef.current) clearInterval(intervalRef.current);
+
+    if (mode === 'today') {
+      intervalRef.current = setInterval(load, 15_000);
+    }
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [load, mode]);
+
+  // PDF export — uses apiClient so Authorization header is attached automatically,
+  // then triggers a fetch-based download (avoids the window.open token problem)
   const handlePdfExport = async () => {
+    const range = getActiveDateRange();
+    if (!range) return;
+
     setExporting(true);
     try {
-      const { start, end } = getDateRange(dayOffset);
+      // Step 1: ask backend to generate the file
       const { data: res } = await apiClient.post('/api/reports/export', {
         format: 'pdf',
-        startDate: start,
-        endDate: end,
+        startDate: range.start.toISOString(),
+        endDate: range.end.toISOString(),
       });
       if (!res.success) throw new Error(res.message);
-      window.open(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}${res.data.downloadUrl}`, '_blank');
+
+      // Step 2: download with token attached (fetch instead of window.open)
+      const token = localStorage.getItem('token');
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const dlRes = await fetch(`${baseUrl}${res.data.downloadUrl}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (!dlRes.ok) throw new Error('Download failed');
+
+      const blob = await dlRes.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = res.data.filename || 'vehicle-report.pdf';
+      document.body.appendChild(a);
+      a.click();
+      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
     } catch (e: any) {
       console.error('PDF export failed:', e.message);
+      alert(`PDF export failed: ${e.message}`);
     } finally {
       setExporting(false);
     }
   };
 
-  // Show hours 06:00–23:00 to reduce noise during off-hours
-  const display = data.filter(d => parseInt(d.hour) >= 6);
+  // Show hours 06:00–23:00 to reduce noise during off-hours for preset modes,
+  // show all hours for custom (multi-day) ranges
+  const isMultiDay = mode === 'custom' &&
+    customStart !== customEnd && customStart && customEnd;
+  const display = isMultiDay ? data : data.filter(d => parseInt(d.hour) >= 6);
+
+  const modeLabel = mode === 'today' ? 'Today' : mode === 'yesterday' ? 'Yesterday' : `${customStart} → ${customEnd}`;
 
   return (
     <div className="bg-card rounded-lg border border-border p-5 animate-fade-in">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Vehicle Traffic</h3>
-          <p className="text-sm text-muted-foreground">Hourly entry &amp; exit — {DAY_LABELS[dayOffset]}</p>
+          <p className="text-sm text-muted-foreground">Hourly entry &amp; exit — {modeLabel}</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Day toggle */}
+        <div className="flex flex-wrap items-start gap-2">
+          {/* Mode toggle */}
           <div className="flex rounded-md border border-border overflow-hidden text-sm">
-            {([0, 1, 2] as DayOffset[]).map(o => (
+            {(['today', 'yesterday', 'custom'] as TimeMode[]).map(m => (
               <button
-                key={o}
-                onClick={() => setDayOffset(o)}
+                key={m}
+                onClick={() => setMode(m)}
                 className={[
-                  'px-3 py-1.5 font-medium transition-colors',
-                  dayOffset === o
+                  'px-3 py-1.5 font-medium transition-colors capitalize flex items-center gap-1.5',
+                  mode === m
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-transparent text-muted-foreground hover:bg-muted',
                 ].join(' ')}
               >
-                {DAY_LABELS[o]}
+                {m === 'custom' && <Calendar className="h-3.5 w-3.5" />}
+                {m === 'today' ? 'Today' : m === 'yesterday' ? 'Yesterday' : 'Custom'}
               </button>
             ))}
           </div>
@@ -174,6 +243,35 @@ export const TrafficLineChart: React.FC = () => {
         </div>
       </div>
 
+      {/* Custom date range inputs */}
+      {mode === 'custom' && (
+        <div className="flex flex-wrap items-end gap-3 mb-5 p-3 bg-muted/40 rounded-lg border border-border">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">From</label>
+            <input
+              type="date"
+              value={customStart}
+              max={customEnd || undefined}
+              onChange={e => setCustomStart(e.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">To</label>
+            <input
+              type="date"
+              value={customEnd}
+              min={customStart || undefined}
+              onChange={e => setCustomEnd(e.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+          <Button size="sm" onClick={load} disabled={loading} className="h-9">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
+          </Button>
+        </div>
+      )}
+
       {/* Chart */}
       {loading ? (
         <div className="h-72 flex items-center justify-center">
@@ -191,7 +289,7 @@ export const TrafficLineChart: React.FC = () => {
                 tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
                 axisLine={{ stroke: 'hsl(var(--border))' }}
                 tickLine={false}
-                interval={1}
+                interval={isMultiDay ? 'preserveStartEnd' : 1}
               />
               <YAxis
                 tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
@@ -298,7 +396,7 @@ export const EntriesExitsChart: React.FC = () => {
   );
 };
 
-// ── Sticker Distribution Pie ──────────────────────────────────────────────────
+// ── Area Distribution Pie (KC vs SEZ) ─────────────────────────────────────────
 
 interface StickerDistributionChartProps {
   yellowInside?: number;
@@ -311,14 +409,14 @@ export const StickerDistributionChart: React.FC<StickerDistributionChartProps> =
 }) => {
   const COLORS = ['hsl(45, 93%, 47%)', 'hsl(142, 71%, 45%)'];
   const distribution = [
-    { name: 'KC (Yellow)', value: yellowInside },
-    { name: 'SEZ (Green)', value: greenInside },
+    { name: 'KC – Gate 1 (Yellow)', value: yellowInside },
+    { name: 'SEZ – Gate 2 (Green)', value: greenInside },
   ];
 
   return (
     <div className="bg-card rounded-lg border border-border p-5 animate-fade-in">
-      <h3 className="text-lg font-semibold text-foreground mb-1">Sticker Distribution</h3>
-      <p className="text-sm text-muted-foreground mb-4">Currently inside by type</p>
+      <h3 className="text-lg font-semibold text-foreground mb-1">Area Distribution</h3>
+      <p className="text-sm text-muted-foreground mb-4">Currently inside by area</p>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
@@ -344,5 +442,4 @@ export const StickerDistributionChart: React.FC<StickerDistributionChartProps> =
   );
 };
 
-// Alias kept so any existing import of MovementOverTimeChart still works
 export const MovementOverTimeChart = TrafficLineChart;

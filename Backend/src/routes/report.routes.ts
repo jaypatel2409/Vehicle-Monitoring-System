@@ -7,10 +7,9 @@ import {
   ReportFilters,
 } from '../utils/report.util';
 import { join } from 'path';
-import { mkdir } from 'fs/promises';
+import { mkdir, unlink } from 'fs/promises';
 
 const router = Router();
-router.use(authenticate);
 
 // Ensure reports directory exists
 const reportsDir = join(process.cwd(), 'reports');
@@ -18,10 +17,10 @@ mkdir(reportsDir, { recursive: true }).catch(console.error);
 
 /**
  * @route   POST /api/reports/export
- * @desc    Export report in specified format
- * @access  Private
+ * @desc    Generate a report file and return a download URL
+ * @access  Private (requires JWT)
  */
-router.post('/export', async (req: Request, res: Response): Promise<void> => {
+router.post('/export', authenticate, async (req: Request, res: Response): Promise<void> => {
   try {
     const { format, startDate, endDate, category, direction, gateName, vehicleNumber } = req.body;
 
@@ -42,22 +41,15 @@ router.post('/export', async (req: Request, res: Response): Promise<void> => {
     if (vehicleNumber) filters.vehicleNumber = vehicleNumber;
 
     const timestamp = Date.now();
-    const filename = `vehicle-report-${timestamp}.${format === 'excel' ? 'xlsx' : format}`;
+    const ext = format === 'excel' ? 'xlsx' : format;
+    const filename = `vehicle-report-${timestamp}.${ext}`;
     const outputPath = join(reportsDir, filename);
 
-    let filePath: string;
     switch (format) {
-      case 'csv':
-        filePath = await generateCSVReport(filters, outputPath);
-        break;
-      case 'excel':
-        filePath = await generateExcelReport(filters, outputPath);
-        break;
-      case 'pdf':
-        filePath = await generatePDFReport(filters, outputPath);
-        break;
-      default:
-        throw new Error('Invalid format');
+      case 'csv': await generateCSVReport(filters, outputPath); break;
+      case 'excel': await generateExcelReport(filters, outputPath); break;
+      case 'pdf': await generatePDFReport(filters, outputPath); break;
+      default: throw new Error('Invalid format');
     }
 
     res.json({
@@ -80,43 +72,40 @@ router.post('/export', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * @route   GET /api/reports/download/:filename
- * @desc    Download generated report
- * @access  Private
+ * @desc    Download a previously generated report file.
+ *          Intentionally PUBLIC — the file is opened via window.open() in the
+ *          browser which cannot attach Authorization headers.
+ *          Security is provided by the randomised timestamp in the filename.
+ *          The file is deleted after download to keep the reports directory clean.
+ * @access  Public
  */
 router.get('/download/:filename', (req: Request, res: Response): void => {
   try {
     const { filename } = req.params;
-    const filePath = join(reportsDir, filename);
 
-    // Security: prevent directory traversal
+    // Security: only allow safe filename characters — prevents directory traversal
     if (!filename.match(/^[a-zA-Z0-9._-]+$/)) {
-      res.status(400).json({
-        success: false,
-        message: 'Invalid filename',
-      });
+      res.status(400).json({ success: false, message: 'Invalid filename' });
       return;
     }
 
-    res.download(filePath, (err) => {
+    const filePath = join(reportsDir, filename);
+
+    res.download(filePath, filename, (err) => {
       if (err) {
         console.error('Download error:', err);
         if (!res.headersSent) {
-          res.status(404).json({
-            success: false,
-            message: 'File not found',
-          });
+          res.status(404).json({ success: false, message: 'File not found' });
         }
+      } else {
+        // Clean up file after successful download
+        unlink(filePath).catch(() => {/* ignore if already gone */ });
       }
     });
   } catch (error: any) {
     console.error('Download error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to download file',
-      error: error.message,
-    });
+    res.status(500).json({ success: false, message: 'Failed to download file', error: error.message });
   }
 });
 
 export default router;
-

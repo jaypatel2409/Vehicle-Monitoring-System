@@ -1,8 +1,8 @@
 /**
  * vehicleApi.ts — Central API client
  * - JWT auto-attached via request interceptor
- * - 401 auto-logout: clears storage and redirects to /login
- * - All API functions in one place
+ * - 401 auto-logout: only triggers on genuine auth failures, NOT on
+ *   network errors or non-auth endpoints (prevents spurious logouts)
  */
 import axios from 'axios';
 
@@ -21,11 +21,15 @@ apiClient.interceptors.request.use(config => {
   return config;
 });
 
-// On 401 — clear session and redirect to login
+// On 401 — only clear session for non-login endpoints.
+// A network timeout or server error (5xx) must NOT trigger a logout.
 apiClient.interceptors.response.use(
   response => response,
   error => {
-    if (error.response?.status === 401) {
+    const isAuthEndpoint = error.config?.url?.includes('/api/auth/login');
+    const is401 = error.response?.status === 401;
+
+    if (is401 && !isAuthEndpoint) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
@@ -46,6 +50,7 @@ export interface DashboardStats {
 export interface InsideVehicle {
   vehicleNumber: string;
   category: string;
+  vehicleType: 'Four-Wheeler' | 'Unknown';
   lastEventTime: string;
   lastGate?: string;
   ownerName?: string;
@@ -54,6 +59,10 @@ export interface InsideVehicle {
 export interface VehicleEvent {
   id: string;
   vehicleNumber: string;
+  /** Four-Wheeler or Unknown. Two-wheelers are filtered by the backend. */
+  vehicleType: 'Four-Wheeler' | 'Unknown';
+  /** KC (Gate 1, yellow) or SEZ (Gate 2, green) */
+  area: 'KC' | 'SEZ';
   stickerColor: 'yellow' | 'green';
   direction: 'IN' | 'OUT';
   gateName: string;

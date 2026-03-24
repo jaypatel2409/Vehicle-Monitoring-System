@@ -4,10 +4,14 @@
  * Fetches vehicle crossing records from HikCentral Artemis
  * POST /api/pms/v1/crossRecords/page
  *
- * Provides:
- *  - fetchCrossRecords()      — single paginated fetch
- *  - startPolling(io, ms)     — recurring poll every N ms with exponential backoff
- *  - stopPolling()            — clears the interval
+ * Vehicle type handling:
+ *   vehicleType=1001 → Four-Wheeler (kept)
+ *   vehicleType=7    → Two-Wheeler  (filtered out — system is four-wheelers only)
+ *   anything else    → Unknown      (kept, flagged)
+ *
+ * Category is determined by GATE, not tagColor:
+ *   GATE 1 → KC  (yellow sticker)
+ *   GATE 2 → SEZ (green sticker)
  */
 
 import { Server as SocketIOServer } from 'socket.io';
@@ -17,20 +21,38 @@ import { artemisClient } from './client';
 import { logger } from '../../utils/logger';
 import { processVehicleEvent } from '../vehicle.service';
 
-// ── Normalized vehicle crossing record ────────────────────────────────────────
+// ── Vehicle type resolution ───────────────────────────────────────────────────
+
+export type VehicleTypeLabel = 'Four-Wheeler' | 'Unknown';
 
 /**
- * Normalized format returned to the dashboard / socket clients.
+ * Resolve vehicleType code from HikCentral API response.
+ * Returns null for two-wheelers (these records must be rejected).
  */
+function resolveVehicleType(raw: CrossRecordRaw): VehicleTypeLabel | null {
+  const code = String(raw.vehicleType ?? raw.vehicle_type ?? raw.type ?? '').trim();
+  if (code === '7') return null;           // Two-wheeler — discard
+  if (code === '1001') return 'Four-Wheeler';
+  return 'Unknown';                        // Unrecognised code — keep but mark Unknown
+}
+
+// ── Normalized vehicle crossing record ────────────────────────────────────────
+
 export interface VehicleCrossRecord {
   plateNo: string;
-  vehicleType: string;
+  /** Four-Wheeler, Unknown. Two-wheelers are filtered before this type is used. */
+  vehicleType: VehicleTypeLabel;
   cameraName: string;
   /** 'IN' for entry cameras, 'OUT' for exit cameras */
   direction: 'IN' | 'OUT';
   passTime: string;   // ISO timestamp
   imageUrl: string;
-  tagColor: string;   // YELLOW=KC, GREEN=SEZ — real value from API
+  /**
+   * Gate-derived colour (overrides tagColor from API):
+   *   GATE 1 → YELLOW (KC)
+   *   GATE 2 → GREEN  (SEZ)
+   */
+  tagColor: string;
 }
 
 // ── API request / response shapes ─────────────────────────────────────────────
@@ -40,7 +62,6 @@ interface CrossRecordsBody {
   pageSize: number;
   startTime?: string;
   endTime?: string;
-  /** Optional: filter by a specific camera */
   cameraIndexCode?: string;
 }
 
@@ -63,10 +84,6 @@ interface ArtemisPagedResponse<T> {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/**
- * Convert a Date to the IST (UTC+05:30) ISO 8601 string required by HikCentral:
- *   yyyy-MM-ddTHH:mm:ss+05:30
- */
 function toHikCentralTime(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   const istOffset = 5.5 * 60 * 60 * 1000;
@@ -88,7 +105,6 @@ function normalizeRecord(raw: CrossRecordRaw): VehicleCrossRecord | null {
     raw.plateNo ?? raw.plate_no ?? raw.vehicleNumber ?? '',
   ).trim();
 
-  // crossTime is the actual field name returned by the API
   const passTime = String(
     raw.crossTime ??
     raw.passTime ??
@@ -100,28 +116,29 @@ function normalizeRecord(raw: CrossRecordRaw): VehicleCrossRecord | null {
     raw.cameraIndexCode ?? raw.camera_index_code ?? '',
   ).trim();
 
-  if (!plateNo || !passTime || !cameraIndexCode) return null;
+  // Basic validation
+  if (!plateNo || plateNo.length < 4 || plateNo === 'Unknown') return null;
+  if (!passTime || isNaN(Date.parse(passTime))) return null;
+  if (!cameraIndexCode) return null;
 
   const cameraMeta = ANPR_CAMERAS[cameraIndexCode];
   if (!cameraMeta) return null;
 
-  // Use real tagColor from API — YELLOW=KC, GREEN=SEZ
-  const tagColor = String(
-    raw.tagColor ??
-    raw.tag_color ??
-    raw.plateColor ??
-    'GREEN'
-  ).toUpperCase();
+  // Resolve vehicle type — reject two-wheelers (code 7)
+  const vehicleType = resolveVehicleType(raw);
+  if (vehicleType === null) {
+    logger.info('[VehicleService] Rejecting two-wheeler', { plateNo, cameraIndexCode });
+    return null;
+  }
 
-  const imageUrl = String(
-    raw.vehiclePicUri ??
-    raw.vehicle_pic_uri ??
-    '',
-  );
+  const imageUrl = String(raw.vehiclePicUri ?? raw.vehicle_pic_uri ?? '');
+
+  // Category/colour is determined by the gate, NOT the API tagColor
+  const tagColor = cameraMeta.defaultCategory === 'SEZ' ? 'GREEN' : 'YELLOW';
 
   return {
     plateNo,
-    vehicleType: String(raw.vehicleType ?? 'Unknown'),
+    vehicleType,
     cameraName: cameraMeta.name,
     direction: cameraMeta.direction === 'ENTRY' ? 'IN' : 'OUT',
     passTime,
@@ -137,18 +154,13 @@ export interface FetchCrossRecordsParams {
   pageSize?: number;
   startTime?: string;
   endTime?: string;
-  /** Optional — filter by a specific camera index code */
   cameraIndexCode?: string;
 }
 
-/**
- * Fetch one page of vehicle crossing records from HikCentral Artemis.
- * Returns normalized VehicleCrossRecord[].
- */
 export async function fetchCrossRecords(
   params: FetchCrossRecordsParams = {},
 ): Promise<VehicleCrossRecord[]> {
-  const apiPath = hikCentralConfig.vehicleEventsPath; // /api/pms/v1/crossRecords/page
+  const apiPath = hikCentralConfig.vehicleEventsPath;
 
   const body: CrossRecordsBody = {
     pageNo: params.pageNo ?? 1,
@@ -177,7 +189,6 @@ export async function fetchCrossRecords(
 
   const payload = response.data;
 
-  // Check HikCentral application-level code
   const code = payload?.code;
   if (code !== undefined && code !== 0 && code !== '0' && code !== 200 && code !== '200') {
     const msg = payload?.msg ?? payload?.message ?? 'Unknown error';
@@ -212,14 +223,6 @@ let consecutiveFailures = 0;
 let cooldownUntilMs = 0;
 let lastWindowEndMs: number | null = null;
 
-/**
- * Start recurring polling of HikCentral for vehicle crossing records.
- * Uses a sliding time-window to avoid duplicate records.
- * Implements exponential backoff (1s…60s) when HikCentral is unreachable.
- *
- * @param io          Socket.IO server instance to emit events to connected clients.
- * @param intervalMs  Polling interval in ms (default: from config, typically 10_000).
- */
 export function startPolling(io: SocketIOServer, intervalMs?: number): void {
   if (pollingActive) {
     logger.warn('[VehicleService] Polling already active — ignoring duplicate startPolling() call');
@@ -231,14 +234,10 @@ export function startPolling(io: SocketIOServer, intervalMs?: number): void {
 
   logger.info('[VehicleService] Starting HikCentral cross-records polling', { intervalMs: interval });
 
-  // Poll immediately on start, then schedule repeating interval
   runPoll(io);
   pollingTimer = setInterval(() => runPoll(io), interval);
 }
 
-/**
- * Stop the polling loop.
- */
 export function stopPolling(): void {
   pollingActive = false;
   if (pollingTimer) {
@@ -265,7 +264,6 @@ async function runPoll(io: SocketIOServer): Promise<void> {
       ? lastWindowEndMs
       : windowEndMs - hikCentralConfig.initialLookbackMs;
 
-  // Use IST format required by HikCentral API
   const startTime = toHikCentralTime(new Date(windowStartMs));
   const endTime = toHikCentralTime(new Date(windowEndMs));
 
@@ -274,8 +272,6 @@ async function runPoll(io: SocketIOServer): Promise<void> {
   let totalProcessed = 0;
 
   try {
-    // API accepts only ONE cameraIndexCode per request
-    // so we loop over all 4 ANPR cameras individually
     for (const cameraIndexCode of ANPR_CAMERA_INDEX_CODES) {
       const cameraMeta = ANPR_CAMERAS[cameraIndexCode];
 
@@ -305,16 +301,14 @@ async function runPoll(io: SocketIOServer): Promise<void> {
               plateNo: record.plateNo,
               eventType: record.direction,
               eventTime: record.passTime,
-              tagColor: record.tagColor,   // real value, not hardcoded
+              tagColor: record.tagColor,   // gate-derived colour
+              vehicleType: record.vehicleType,
               gateName: cameraMeta.gate,
               cameraName: record.cameraName,
               cameraIndexCode,
             };
 
-            const saved = await processVehicleEvent(
-              hikEvent as any,
-              cameraMeta.gate
-            );
+            const saved = await processVehicleEvent(hikEvent as any, cameraMeta.gate);
 
             if (saved) {
               totalProcessed++;
@@ -341,15 +335,10 @@ async function runPoll(io: SocketIOServer): Promise<void> {
       }
     }
 
-    // Success — advance the time window
     lastWindowEndMs = windowEndMs;
     consecutiveFailures = 0;
 
-    logger.info('[VehicleService] Poll complete', {
-      totalProcessed,
-      startTime,
-      endTime,
-    });
+    logger.info('[VehicleService] Poll complete', { totalProcessed, startTime, endTime });
 
     if (totalProcessed > 0) {
       io.emit('dashboard:stats-request');

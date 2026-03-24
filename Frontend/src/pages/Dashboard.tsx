@@ -55,6 +55,8 @@ const Dashboard: React.FC = () => {
   const vehicleActivities = events.map(e => ({
     id: e.id,
     vehicleNumber: e.vehicleNumber,
+    vehicleType: e.vehicleType ?? 'Unknown',
+    area: e.area ?? (e.stickerColor === 'green' ? 'SEZ' : 'KC'),
     stickerColor: e.stickerColor,
     direction: e.direction,
     gateName: e.gateName,
