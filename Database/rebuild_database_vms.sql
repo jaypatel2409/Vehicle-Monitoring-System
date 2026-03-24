@@ -310,3 +310,26 @@ BEGIN
         RAISE WARNING '⚠️  Something looks wrong. tbl_count=%, col_count=%', tbl_count, col_count;
     END IF;
 END $$;
+
+-- ============================================================
+-- Migration: Add vehicle_type column to vehicles and vehicle_events
+-- Run this against your existing bms_vehicle_db database
+-- ============================================================
+
+-- Add vehicle_type to vehicles table
+ALTER TABLE vehicles
+  ADD COLUMN IF NOT EXISTS vehicle_type VARCHAR(20) DEFAULT 'Unknown';
+
+-- Add vehicle_type to vehicle_events table
+ALTER TABLE vehicle_events
+  ADD COLUMN IF NOT EXISTS vehicle_type VARCHAR(20) DEFAULT 'Unknown';
+
+-- Optional: add index for filtering by vehicle type
+CREATE INDEX IF NOT EXISTS idx_events_vehicle_type ON vehicle_events(vehicle_type);
+
+-- Verify
+SELECT column_name, data_type, column_default
+FROM information_schema.columns
+WHERE table_name IN ('vehicles', 'vehicle_events')
+  AND column_name = 'vehicle_type'
+ORDER BY table_name;
