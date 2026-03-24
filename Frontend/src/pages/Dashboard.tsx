@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Car, ArrowDownLeft, ArrowUpRight, Users, Loader2 } from 'lucide-react';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { VehicleTable } from '@/components/dashboard/VehicleTable';
 import {
+  TrafficLineChart,
   EntriesExitsChart,
-  MovementOverTimeChart,
   StickerDistributionChart,
 } from '@/components/dashboard/Charts';
 import {
@@ -27,7 +27,7 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = React.useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
       setError(null);
       const [statsData, eventsData] = await Promise.all([
@@ -47,11 +47,12 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 15000);
+    // Refresh stat cards every 15 s — the charts manage their own data fetching
+    const interval = setInterval(fetchData, 15_000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  const vehicleActivities = events.map((e) => ({
+  const vehicleActivities = events.map(e => ({
     id: e.id,
     vehicleNumber: e.vehicleNumber,
     stickerColor: e.stickerColor,
@@ -82,15 +83,13 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
+      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-foreground">Dashboard Overview</h1>
-        <p className="text-muted-foreground mt-1">
-          Monitor campus vehicle activity in real-time
-        </p>
+        <p className="text-muted-foreground mt-1">Monitor campus vehicle activity in real-time</p>
       </div>
 
-      {/* Stats Grid */}
+      {/* Today's IN / OUT stat cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           title="Total Vehicles"
@@ -100,49 +99,49 @@ const Dashboard: React.FC = () => {
           subtitle="Registered vehicles"
         />
         <StatCard
-          title="Yellow Sticker - Entered"
+          title="KC (Yellow) – Entered"
           value={stats.yellowSticker.entered}
           icon={ArrowDownLeft}
           variant="yellow"
         />
         <StatCard
-          title="Yellow Sticker - Exited"
+          title="KC (Yellow) – Exited"
           value={stats.yellowSticker.exited}
           icon={ArrowUpRight}
           variant="yellow"
         />
         <StatCard
-          title="Green Sticker - Entered"
+          title="SEZ (Green) – Entered"
           value={stats.greenSticker.entered}
           icon={ArrowDownLeft}
           variant="green"
         />
         <StatCard
-          title="Green Sticker - Exited"
+          title="SEZ (Green) – Exited"
           value={stats.greenSticker.exited}
           icon={ArrowUpRight}
           variant="green"
         />
       </div>
 
-      {/* Currently Inside Stats */}
+      {/* Currently inside stat cards */}
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
-          title="Yellow Sticker - Inside"
+          title="KC (Yellow) – Inside Now"
           value={stats.yellowSticker.inside}
           icon={Car}
           variant="default"
           subtitle="Currently on campus"
         />
         <StatCard
-          title="Green Sticker - Inside"
+          title="SEZ (Green) – Inside Now"
           value={stats.greenSticker.inside}
           icon={Car}
           variant="default"
           subtitle="Currently on campus"
         />
         <StatCard
-          title="Total Vehicles Inside"
+          title="Total Inside"
           value={stats.totalInside}
           icon={Users}
           variant="primary"
@@ -150,21 +149,20 @@ const Dashboard: React.FC = () => {
         />
       </div>
 
-      {/* Charts Section */}
+      {/* Traffic line chart — full width with day toggle + PDF export */}
+      <TrafficLineChart />
+
+      {/* Weekly bar chart + pie */}
       <div className="grid gap-6 lg:grid-cols-2">
         <EntriesExitsChart />
-        <MovementOverTimeChart />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <VehicleTable data={vehicleActivities} />
-        </div>
         <StickerDistributionChart
           yellowInside={stats.yellowSticker.inside}
           greenInside={stats.greenSticker.inside}
         />
       </div>
+
+      {/* Recent events table */}
+      <VehicleTable data={vehicleActivities} />
     </div>
   );
 };
