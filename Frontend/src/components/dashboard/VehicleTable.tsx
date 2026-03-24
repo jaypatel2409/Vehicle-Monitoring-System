@@ -8,6 +8,26 @@ interface VehicleTableProps {
   data: VehicleActivity[];
 }
 
+/** Format any date string as IST (Asia/Kolkata) */
+function toIST(dateStr: string): string {
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return dateStr;
+    return date.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
 export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
@@ -50,7 +70,7 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
       <div className="p-5 border-b border-border flex justify-between items-center">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Recent Vehicle Activity</h3>
-          <p className="text-sm text-muted-foreground mt-0.5">Real-time vehicle entries and exits</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Real-time vehicle entries and exits (IST)</p>
         </div>
         <button
           onClick={handleExport}
@@ -81,7 +101,7 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
                 Gate
               </th>
               <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-5 py-3">
-                Date &amp; Time
+                Date &amp; Time (IST)
               </th>
             </tr>
           </thead>
@@ -95,12 +115,9 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
             ) : (
               paginatedData.map((activity) => (
                 <tr key={activity.id} className="table-row-hover">
-                  {/* Vehicle Number */}
                   <td className="px-5 py-4">
                     <span className="font-medium text-foreground">{activity.vehicleNumber}</span>
                   </td>
-
-                  {/* Vehicle Type */}
                   <td className="px-5 py-4">
                     <span className={cn(
                       'text-sm font-medium',
@@ -111,8 +128,6 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
                       {activity.vehicleType}
                     </span>
                   </td>
-
-                  {/* Area (replaces Sticker) — KC = yellow, SEZ = green */}
                   <td className="px-5 py-4">
                     <Badge
                       variant="secondary"
@@ -120,20 +135,16 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
                         'font-medium',
                         activity.area === 'KC'
                           ? 'bg-yellow-sticker-light text-yellow-sticker-foreground border-yellow-sticker/30'
-                          : 'bg-green-sticker-light  text-green-sticker-foreground  border-green-sticker/30'
+                          : 'bg-green-sticker-light text-green-sticker-foreground border-green-sticker/30'
                       )}
                     >
-                      <span
-                        className={cn(
-                          'w-2 h-2 rounded-full mr-1.5',
-                          activity.area === 'KC' ? 'bg-yellow-sticker' : 'bg-green-sticker'
-                        )}
-                      />
+                      <span className={cn(
+                        'w-2 h-2 rounded-full mr-1.5',
+                        activity.area === 'KC' ? 'bg-yellow-sticker' : 'bg-green-sticker'
+                      )} />
                       {activity.area}
                     </Badge>
                   </td>
-
-                  {/* Direction */}
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-1.5">
                       {activity.direction === 'IN' ? (
@@ -149,15 +160,11 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
                       </span>
                     </div>
                   </td>
-
-                  {/* Gate */}
                   <td className="px-5 py-4">
                     <span className="text-sm text-muted-foreground">{activity.gateName}</span>
                   </td>
-
-                  {/* Date & Time */}
                   <td className="px-5 py-4">
-                    <span className="text-sm text-muted-foreground">{activity.dateTime}</span>
+                    <span className="text-sm text-muted-foreground">{toIST(activity.dateTime)}</span>
                   </td>
                 </tr>
               ))

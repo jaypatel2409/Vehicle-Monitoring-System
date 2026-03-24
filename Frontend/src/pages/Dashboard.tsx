@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Car, ArrowDownLeft, ArrowUpRight, Users, Loader2 } from 'lucide-react';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { VehicleTable } from '@/components/dashboard/VehicleTable';
@@ -21,7 +22,26 @@ const DEFAULT_STATS: DashboardStatsType = {
   totalInside: 0,
 };
 
+/** Thin clickable wrapper that gives a pointer cursor and subtle hover ring */
+const ClickableCard: React.FC<{ onClick: () => void; children: React.ReactNode; title?: string }> = ({
+  onClick,
+  children,
+  title,
+}) => (
+  <div
+    onClick={onClick}
+    title={title}
+    className="cursor-pointer rounded-xl ring-offset-background transition-all hover:ring-2 hover:ring-primary/50 hover:ring-offset-2 active:scale-95 focus-visible:outline-none"
+    role="button"
+    tabIndex={0}
+    onKeyDown={e => e.key === 'Enter' && onClick()}
+  >
+    {children}
+  </div>
+);
+
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStatsType>(DEFAULT_STATS);
   const [events, setEvents] = useState<VehicleEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,7 +67,6 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-    // Refresh stat cards every 15 s — the charts manage their own data fetching
     const interval = setInterval(fetchData, 15_000);
     return () => clearInterval(interval);
   }, [fetchData]);
@@ -91,8 +110,9 @@ const Dashboard: React.FC = () => {
         <p className="text-muted-foreground mt-1">Monitor campus vehicle activity in real-time</p>
       </div>
 
-      {/* Today's IN / OUT stat cards */}
+      {/* Today's IN / OUT stat cards — KC and SEZ are clickable */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {/* Non-clickable total */}
         <StatCard
           title="Total Vehicles"
           value={stats.totalVehicles ?? 0}
@@ -100,48 +120,88 @@ const Dashboard: React.FC = () => {
           variant="default"
           subtitle="Registered vehicles"
         />
-        <StatCard
-          title="KC (Yellow) – Entered"
-          value={stats.yellowSticker.entered}
-          icon={ArrowDownLeft}
-          variant="yellow"
-        />
-        <StatCard
-          title="KC (Yellow) – Exited"
-          value={stats.yellowSticker.exited}
-          icon={ArrowUpRight}
-          variant="yellow"
-        />
-        <StatCard
-          title="SEZ (Green) – Entered"
-          value={stats.greenSticker.entered}
-          icon={ArrowDownLeft}
-          variant="green"
-        />
-        <StatCard
-          title="SEZ (Green) – Exited"
-          value={stats.greenSticker.exited}
-          icon={ArrowUpRight}
-          variant="green"
-        />
+
+        {/* KC (Yellow) — Entered: click → /gate/kc */}
+        <ClickableCard
+          onClick={() => navigate('/gate/kc')}
+          title="View all KC (Gate 1) vehicles"
+        >
+          <StatCard
+            title="KC (Yellow) – Entered"
+            value={stats.yellowSticker.entered}
+            icon={ArrowDownLeft}
+            variant="yellow"
+          />
+        </ClickableCard>
+
+        {/* KC (Yellow) — Exited: click → /gate/kc */}
+        <ClickableCard
+          onClick={() => navigate('/gate/kc')}
+          title="View all KC (Gate 1) vehicles"
+        >
+          <StatCard
+            title="KC (Yellow) – Exited"
+            value={stats.yellowSticker.exited}
+            icon={ArrowUpRight}
+            variant="yellow"
+          />
+        </ClickableCard>
+
+        {/* SEZ (Green) — Entered: click → /gate/sez */}
+        <ClickableCard
+          onClick={() => navigate('/gate/sez')}
+          title="View all SEZ (Gate 2) vehicles"
+        >
+          <StatCard
+            title="SEZ (Green) – Entered"
+            value={stats.greenSticker.entered}
+            icon={ArrowDownLeft}
+            variant="green"
+          />
+        </ClickableCard>
+
+        {/* SEZ (Green) — Exited: click → /gate/sez */}
+        <ClickableCard
+          onClick={() => navigate('/gate/sez')}
+          title="View all SEZ (Gate 2) vehicles"
+        >
+          <StatCard
+            title="SEZ (Green) – Exited"
+            value={stats.greenSticker.exited}
+            icon={ArrowUpRight}
+            variant="green"
+          />
+        </ClickableCard>
       </div>
 
-      {/* Currently inside stat cards */}
+      {/* Currently inside stat cards — also clickable */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard
-          title="KC (Yellow) – Inside Now"
-          value={stats.yellowSticker.inside}
-          icon={Car}
-          variant="default"
-          subtitle="Currently on campus"
-        />
-        <StatCard
-          title="SEZ (Green) – Inside Now"
-          value={stats.greenSticker.inside}
-          icon={Car}
-          variant="default"
-          subtitle="Currently on campus"
-        />
+        <ClickableCard
+          onClick={() => navigate('/gate/kc')}
+          title="View all KC (Gate 1) vehicles"
+        >
+          <StatCard
+            title="KC (Yellow) – Inside Now"
+            value={stats.yellowSticker.inside}
+            icon={Car}
+            variant="default"
+            subtitle="Click to view list"
+          />
+        </ClickableCard>
+
+        <ClickableCard
+          onClick={() => navigate('/gate/sez')}
+          title="View all SEZ (Gate 2) vehicles"
+        >
+          <StatCard
+            title="SEZ (Green) – Inside Now"
+            value={stats.greenSticker.inside}
+            icon={Car}
+            variant="default"
+            subtitle="Click to view list"
+          />
+        </ClickableCard>
+
         <StatCard
           title="Total Inside"
           value={stats.totalInside}
@@ -151,7 +211,7 @@ const Dashboard: React.FC = () => {
         />
       </div>
 
-      {/* Traffic line chart — full width with day toggle + PDF export */}
+      {/* Traffic line chart */}
       <TrafficLineChart />
 
       {/* Weekly bar chart + pie */}

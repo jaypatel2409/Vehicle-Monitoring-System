@@ -16,6 +16,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import VehicleMonitoring from "./pages/VehicleMonitoring";
+import GateVehicles from "./pages/GateVehicles";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
@@ -66,6 +67,8 @@ const App = () => (
               <Route element={<DashboardLayout />}>
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/monitoring" element={<VehicleMonitoring />} />
+                {/* Gate-filtered vehicle list — /gate/kc or /gate/sez */}
+                <Route path="/gate/:gate" element={<GateVehicles />} />
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/settings" element={<Settings />} />
               </Route>

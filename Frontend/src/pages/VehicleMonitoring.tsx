@@ -1,5 +1,19 @@
-import React, { useState } from 'react';
-import { Car, Search, RefreshCw, Filter, Eye, AlertCircle } from 'lucide-react';
+/**
+ * VehicleMonitoring.tsx — Real-time vehicle monitoring
+ * Polls GET /api/vehicles/inside every 10 seconds for live occupancy data.
+ * Supports filter by area (KC/SEZ), search by plate number.
+ */
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  Car,
+  Search,
+  RefreshCw,
+  Filter,
+  Eye,
+  Wifi,
+  WifiOff,
+  Clock,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,30 +34,97 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { gateOptions, stickerOptions, mockVehicleActivities, VehicleActivity } from '@/data/mockData';
-import { useToast } from '@/hooks/use-toast';
+import { getInsideVehicles, getDashboardStats, type InsideVehicle } from '@/api/vehicleApi';
+
+const POLL_INTERVAL_MS = 10_000; // 10 seconds — matches backend poll cycle
+
+/** Format to IST */
+function toIST(dateStr: string): string {
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
+/** How many seconds ago was the last refresh */
+function secondsAgo(date: Date): number {
+  return Math.floor((Date.now() - date.getTime()) / 1000);
+}
 
 const VehicleMonitoring: React.FC = () => {
-  const { toast } = useToast();
-  const [selectedGate, setSelectedGate] = useState('all');
-  const [selectedSticker, setSelectedSticker] = useState('all');
-  const [selectedDirection, setSelectedDirection] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedVehicle, setSelectedVehicle] = useState<VehicleActivity | null>(null);
+  const [vehicles, setVehicles] = useState<InsideVehicle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isLive, setIsLive] = useState(true);
+  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [secondsSince, setSecondsSince] = useState(0);
+  const [totalInside, setTotalInside] = useState(0);
+  const [kcInside, setKcInside] = useState(0);
+  const [sezInside, setSezInside] = useState(0);
 
-  const handleRefresh = () => {
-    toast({
-      title: 'Data Refreshed',
-      description: 'Vehicle monitoring data has been updated.',
-    });
+  // Filters
+  const [searchQuery, setSearchQuery] = useState('');
+  const [areaFilter, setAreaFilter] = useState<'all' | 'KC' | 'SEZ'>('all');
+
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [vehicleData, statsData] = await Promise.all([
+        getInsideVehicles(500),
+        getDashboardStats(),
+      ]);
+      setVehicles(vehicleData);
+      setTotalInside(statsData.totalInside);
+      setKcInside(statsData.yellowSticker.inside);
+      setSezInside(statsData.greenSticker.inside);
+      setIsLive(true);
+      setLastRefreshed(new Date());
+      setSecondsSince(0);
+    } catch {
+      setIsLive(false);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Start/stop polling
+  useEffect(() => {
+    fetchData();
+    intervalRef.current = setInterval(fetchData, POLL_INTERVAL_MS);
+    // Tick to update "Xs ago" counter
+    tickRef.current = setInterval(() => setSecondsSince(s => s + 1), 1000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (tickRef.current) clearInterval(tickRef.current);
+    };
+  }, [fetchData]);
+
+  const handleManualRefresh = () => {
+    setLoading(true);
+    fetchData();
+    // Reset interval so we don't double-poll immediately
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(fetchData, POLL_INTERVAL_MS);
   };
 
-  const filteredData = mockVehicleActivities.filter((item) => {
-    const matchesGate = selectedGate === 'all' || item.gateName.toLowerCase().includes(selectedGate);
-    const matchesSticker = selectedSticker === 'all' || item.stickerColor === selectedSticker;
-    const matchesDirection = selectedDirection === 'all' || item.direction === selectedDirection;
-    const matchesSearch = item.vehicleNumber.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesGate && matchesSticker && matchesDirection && matchesSearch;
+  // Filter
+  const filtered = vehicles.filter(v => {
+    const matchesArea = areaFilter === 'all' || v.category === areaFilter;
+    const matchesSearch = v.vehicleNumber.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesArea && matchesSearch;
   });
 
   return (
@@ -51,258 +132,253 @@ const VehicleMonitoring: React.FC = () => {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Vehicle Monitoring</h1>
-          <p className="text-muted-foreground mt-1">
-            Real-time vehicle tracking and activity monitoring
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-foreground">Vehicle Monitoring</h1>
+            {/* Live indicator */}
+            <span className={cn(
+              'flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full',
+              isLive
+                ? 'bg-success/10 text-success'
+                : 'bg-destructive/10 text-destructive'
+            )}>
+              {isLive
+                ? <><Wifi className="h-3 w-3" /> LIVE</>
+                : <><WifiOff className="h-3 w-3" /> OFFLINE</>}
+            </span>
+          </div>
+          <p className="text-muted-foreground mt-1 text-sm flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5" />
+            Last updated: {toIST(lastRefreshed.toISOString())}
+            {secondsSince > 0 && (
+              <span className="text-muted-foreground/60">({secondsSince}s ago)</span>
+            )}
+            <span className="text-muted-foreground/50 ml-1">· Auto-refreshes every 10s</span>
           </p>
         </div>
-        
-        <Button onClick={handleRefresh} className="gap-2">
-          <RefreshCw className="h-4 w-4" />
-          Refresh Data
+
+        <Button onClick={handleManualRefresh} className="gap-2" disabled={loading}>
+          <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+          Refresh Now
         </Button>
       </div>
 
       {/* Live Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="bg-card rounded-lg border border-border p-4 animate-fade-in">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/10">
-              <Car className="h-5 w-5 text-success" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Entries Today</p>
-              <p className="text-xl font-bold text-foreground">659</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-card rounded-lg border border-border p-4 animate-fade-in">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-destructive/10">
-              <Car className="h-5 w-5 text-destructive" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Exits Today</p>
-              <p className="text-xl font-bold text-foreground">545</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-card rounded-lg border border-border p-4 animate-fade-in">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="bg-card rounded-lg border border-border p-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
               <Car className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Currently Inside</p>
-              <p className="text-xl font-bold text-foreground">114</p>
+              <p className="text-sm text-muted-foreground">Total Inside</p>
+              <p className="text-2xl font-bold text-foreground">{totalInside}</p>
             </div>
           </div>
         </div>
-        <div className="bg-card rounded-lg border border-border p-4 animate-fade-in">
+
+        <div className="bg-yellow-sticker-light rounded-lg border border-yellow-sticker/20 p-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning/10">
-              <AlertCircle className="h-5 w-5 text-warning" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-yellow-sticker/20">
+              <Car className="h-5 w-5 text-yellow-sticker" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Alerts</p>
-              <p className="text-xl font-bold text-foreground">3</p>
+              <p className="text-sm text-yellow-sticker-foreground/70">KC (Gate 1) Inside</p>
+              <p className="text-2xl font-bold text-yellow-sticker-foreground">{kcInside}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-green-sticker-light rounded-lg border border-green-sticker/20 p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-sticker/20">
+              <Car className="h-5 w-5 text-green-sticker" />
+            </div>
+            <div>
+              <p className="text-sm text-green-sticker-foreground/70">SEZ (Gate 2) Inside</p>
+              <p className="text-2xl font-bold text-green-sticker-foreground">{sezInside}</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-card rounded-lg border border-border p-5 animate-fade-in">
+      <div className="bg-card rounded-lg border border-border p-5">
         <div className="flex items-center gap-2 mb-4">
-          <Filter className="h-5 w-5 text-muted-foreground" />
-          <h3 className="font-semibold text-foreground">Filters</h3>
+          <Filter className="h-4 w-4 text-muted-foreground" />
+          <h3 className="font-semibold text-foreground text-sm">Filters</h3>
         </div>
-        
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {/* Search */}
-          <div className="space-y-2">
-            <Label htmlFor="search">Search Vehicle</Label>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Search by plate */}
+          <div className="space-y-1.5">
+            <Label htmlFor="vm-search">Search by Plate Number</Label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                id="search"
-                placeholder="Vehicle number..."
+                id="vm-search"
+                placeholder="e.g. GJ01AB1234"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={e => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
             </div>
           </div>
 
-          {/* Sticker Color */}
-          <div className="space-y-2">
-            <Label>Sticker Color</Label>
-            <Select value={selectedSticker} onValueChange={setSelectedSticker}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select sticker" />
-              </SelectTrigger>
+          {/* Area filter */}
+          <div className="space-y-1.5">
+            <Label>Area</Label>
+            <Select value={areaFilter} onValueChange={v => setAreaFilter(v as 'all' | 'KC' | 'SEZ')}>
+              <SelectTrigger><SelectValue placeholder="All areas" /></SelectTrigger>
               <SelectContent>
-                {stickerOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
+                <SelectItem value="all">All Areas</SelectItem>
+                <SelectItem value="KC">KC — Gate 1 (Yellow)</SelectItem>
+                <SelectItem value="SEZ">SEZ — Gate 2 (Green)</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {/* Gate */}
-          <div className="space-y-2">
-            <Label>Gate</Label>
-            <Select value={selectedGate} onValueChange={setSelectedGate}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select gate" />
-              </SelectTrigger>
-              <SelectContent>
-                {gateOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Direction */}
-          <div className="space-y-2">
-            <Label>Direction</Label>
-            <Select value={selectedDirection} onValueChange={setSelectedDirection}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select direction" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Directions</SelectItem>
-                <SelectItem value="IN">Entry Only</SelectItem>
-                <SelectItem value="OUT">Exit Only</SelectItem>
-              </SelectContent>
-            </Select>
+          {/* Result count */}
+          <div className="flex items-end">
+            <p className="text-sm text-muted-foreground pb-2">
+              Showing <span className="font-semibold text-foreground">{filtered.length}</span> vehicles currently inside
+            </p>
           </div>
         </div>
       </div>
 
       {/* Vehicle Grid */}
-      <div className="bg-card rounded-lg border border-border animate-fade-in">
+      <div className="bg-card rounded-lg border border-border">
         <div className="p-5 border-b border-border">
-          <h3 className="text-lg font-semibold text-foreground">Live Vehicle Feed</h3>
+          <h3 className="text-lg font-semibold text-foreground">Currently Inside</h3>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {filteredData.length} vehicles found
+            {filtered.length} vehicle{filtered.length !== 1 ? 's' : ''} on campus right now
           </p>
         </div>
 
-        <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filteredData.map((vehicle) => (
-            <div
-              key={vehicle.id}
-              className="bg-background rounded-lg border border-border p-4 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-                  <Car className="h-5 w-5 text-muted-foreground" />
-                </div>
-                <Badge
-                  variant={vehicle.direction === 'IN' ? 'default' : 'secondary'}
-                  className={cn(
-                    vehicle.direction === 'IN'
-                      ? 'bg-success/10 text-success border-success/30'
-                      : 'bg-destructive/10 text-destructive border-destructive/30'
-                  )}
+        {loading && vehicles.length === 0 ? (
+          <div className="flex items-center justify-center py-16">
+            <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+            <span className="ml-3 text-muted-foreground">Loading live data…</span>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16">
+            <Car className="h-12 w-12 text-muted-foreground/40 mb-4" />
+            <p className="text-muted-foreground font-medium">No vehicles currently inside</p>
+            <p className="text-sm text-muted-foreground/60 mt-1">
+              {searchQuery || areaFilter !== 'all'
+                ? 'Try adjusting your filters'
+                : 'The campus appears to be empty right now'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {filtered.map((vehicle) => {
+              const isKC = vehicle.category === 'KC';
+              return (
+                <div
+                  key={vehicle.vehicleNumber}
+                  className="bg-background rounded-lg border border-border p-4 hover:shadow-md transition-shadow"
                 >
-                  {vehicle.direction}
-                </Badge>
-              </div>
-              
-              <h4 className="font-semibold text-foreground mb-1">{vehicle.vehicleNumber}</h4>
-              
-              <div className="space-y-1 mb-3">
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant="secondary"
-                    className={cn(
-                      'text-xs',
-                      vehicle.stickerColor === 'yellow'
-                        ? 'bg-yellow-sticker-light text-yellow-sticker-foreground'
-                        : 'bg-green-sticker-light text-green-sticker-foreground'
-                    )}
-                  >
-                    {vehicle.stickerColor.charAt(0).toUpperCase() + vehicle.stickerColor.slice(1)}
-                  </Badge>
-                </div>
-                <p className="text-sm text-muted-foreground">{vehicle.gateName}</p>
-                <p className="text-xs text-muted-foreground">{vehicle.dateTime}</p>
-              </div>
-
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full gap-2"
-                    onClick={() => setSelectedVehicle(vehicle)}
-                  >
-                    <Eye className="h-4 w-4" />
-                    View Details
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Vehicle Details</DialogTitle>
-                    <DialogDescription>
-                      Complete information about this vehicle
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="flex items-center gap-4">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-muted">
-                        <Car className="h-8 w-8 text-muted-foreground" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold">{vehicle.vehicleNumber}</h3>
-                        <Badge
-                          className={cn(
-                            vehicle.stickerColor === 'yellow'
-                              ? 'bg-yellow-sticker-light text-yellow-sticker-foreground'
-                              : 'bg-green-sticker-light text-green-sticker-foreground'
-                          )}
-                        >
-                          {vehicle.stickerColor.charAt(0).toUpperCase() + vehicle.stickerColor.slice(1)} Sticker
-                        </Badge>
-                      </div>
+                  {/* Card header */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className={cn(
+                      'flex h-10 w-10 items-center justify-center rounded-lg',
+                      isKC ? 'bg-yellow-sticker/20' : 'bg-green-sticker/20'
+                    )}>
+                      <Car className={cn('h-5 w-5', isKC ? 'text-yellow-sticker' : 'text-green-sticker')} />
                     </div>
-                    
-                    <div className="grid gap-3">
-                      <div className="flex justify-between py-2 border-b border-border">
-                        <span className="text-muted-foreground">Direction</span>
-                        <span className="font-medium">{vehicle.direction === 'IN' ? 'Entry' : 'Exit'}</span>
-                      </div>
-                      <div className="flex justify-between py-2 border-b border-border">
-                        <span className="text-muted-foreground">Gate</span>
-                        <span className="font-medium">{vehicle.gateName}</span>
-                      </div>
-                      <div className="flex justify-between py-2 border-b border-border">
-                        <span className="text-muted-foreground">Timestamp</span>
-                        <span className="font-medium">{vehicle.dateTime}</span>
-                      </div>
-                      <div className="flex justify-between py-2">
-                        <span className="text-muted-foreground">Status</span>
-                        <Badge variant="secondary" className="bg-success/10 text-success">Active</Badge>
-                      </div>
-                    </div>
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        'font-medium text-xs',
+                        isKC
+                          ? 'bg-yellow-sticker-light text-yellow-sticker-foreground border-yellow-sticker/30'
+                          : 'bg-green-sticker-light text-green-sticker-foreground border-green-sticker/30'
+                      )}
+                    >
+                      <span className={cn('w-1.5 h-1.5 rounded-full mr-1', isKC ? 'bg-yellow-sticker' : 'bg-green-sticker')} />
+                      {vehicle.category}
+                    </Badge>
                   </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-          ))}
-        </div>
 
-        {filteredData.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-12">
-            <Car className="h-12 w-12 text-muted-foreground/50 mb-4" />
-            <p className="text-muted-foreground">No vehicles found matching your criteria</p>
+                  {/* Plate */}
+                  <h4 className="font-bold text-foreground text-base mb-1 tracking-wide">
+                    {vehicle.vehicleNumber}
+                  </h4>
+
+                  {/* Meta */}
+                  <div className="space-y-1 mb-3">
+                    <p className="text-xs text-muted-foreground">
+                      {vehicle.vehicleType ?? 'Unknown type'}
+                    </p>
+                    {vehicle.lastGate && (
+                      <p className="text-xs text-muted-foreground">{vehicle.lastGate}</p>
+                    )}
+                    {vehicle.ownerName && (
+                      <p className="text-xs text-muted-foreground truncate" title={vehicle.ownerName}>
+                        {vehicle.ownerName}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground/70">
+                      Since {toIST(vehicle.lastEventTime)}
+                    </p>
+                  </div>
+
+                  {/* Details dialog */}
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="w-full gap-2">
+                        <Eye className="h-4 w-4" />
+                        View Details
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Vehicle Details</DialogTitle>
+                        <DialogDescription>
+                          Live status for vehicle <strong>{vehicle.vehicleNumber}</strong>
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="flex items-center gap-4">
+                          <div className={cn(
+                            'flex h-16 w-16 items-center justify-center rounded-xl',
+                            isKC ? 'bg-yellow-sticker/15' : 'bg-green-sticker/15'
+                          )}>
+                            <Car className={cn('h-8 w-8', isKC ? 'text-yellow-sticker' : 'text-green-sticker')} />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-bold tracking-wide">{vehicle.vehicleNumber}</h3>
+                            <Badge className={cn(
+                              isKC
+                                ? 'bg-yellow-sticker-light text-yellow-sticker-foreground'
+                                : 'bg-green-sticker-light text-green-sticker-foreground'
+                            )}>
+                              {vehicle.category} — {isKC ? 'Gate 1' : 'Gate 2'}
+                            </Badge>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-2">
+                          {[
+                            ['Status', 'Inside Campus'],
+                            ['Vehicle Type', vehicle.vehicleType ?? 'Unknown'],
+                            ['Last Gate', vehicle.lastGate ?? '—'],
+                            ['Owner', vehicle.ownerName ?? '—'],
+                            ['Last Event (IST)', toIST(vehicle.lastEventTime)],
+                          ].map(([label, value]) => (
+                            <div key={label} className="flex justify-between py-2 border-b border-border last:border-0">
+                              <span className="text-sm text-muted-foreground">{label}</span>
+                              <span className="text-sm font-medium text-right max-w-[60%]">{value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
