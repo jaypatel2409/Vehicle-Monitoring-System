@@ -1,7 +1,7 @@
 export interface VehicleActivity {
   id: string;
   vehicleNumber: string;
-  stickerColor: 'KC' | 'SEZ';
+  stickerColor: 'yellow' | 'green';
   direction: 'IN' | 'OUT';
   gateName: string;
   dateTime: string;
@@ -59,7 +59,7 @@ const generateMockActivities = (): VehicleActivity[] => {
     activities.push({
       id: String(i + 1),
       vehicleNumber,
-      stickerColor: Math.random() > 0.5 ? 'SEZ' : 'KC',
+      stickerColor: Math.random() > 0.5 ? 'green' : 'yellow',
       direction: Math.random() > 0.6 ? 'IN' : 'OUT',
       gateName: gates[Math.floor(Math.random() * gates.length)],
       dateTime,
