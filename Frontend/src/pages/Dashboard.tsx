@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Car, ArrowDownLeft, ArrowUpRight, Users, Loader2 } from 'lucide-react';
 import { StatCard } from '@/components/dashboard/StatCard';
@@ -14,6 +14,7 @@ import {
   type DashboardStats as DashboardStatsType,
   type VehicleEvent,
 } from '@/api/vehicleApi';
+import { useSocket } from '@/hooks/useSocket';
 
 const DEFAULT_STATS: DashboardStatsType = {
   totalVehicles: 0,
@@ -42,17 +43,21 @@ const ClickableCard: React.FC<{ onClick: () => void; children: React.ReactNode; 
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
+  const socket = useSocket();
   const [stats, setStats] = useState<DashboardStatsType>(DEFAULT_STATS);
   const [events, setEvents] = useState<VehicleEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Keep a ref to the latest events so socket handlers don't close over stale state
+  const eventsRef = useRef<VehicleEvent[]>([]);
+  eventsRef.current = events;
 
   const fetchData = useCallback(async () => {
     try {
       setError(null);
       const [statsData, eventsData] = await Promise.all([
         getDashboardStats(),
-        getVehicleEvents({ limit: 50 }),
+        getVehicleEvents({ limit: 200 }), // raised from 50 → 200 for better coverage
       ]);
       setStats(statsData);
       setEvents(eventsData);
@@ -65,11 +70,61 @@ const Dashboard: React.FC = () => {
     }
   }, []);
 
+  // REST polling every 15 s (fallback for environments without live socket)
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 15_000);
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  // ── Socket.IO real-time subscriptions ────────────────────────────────────
+  useEffect(() => {
+    if (!socket) return;
+
+    // Instant stats update when backend broadcasts new counts
+    const onStats = (newStats: DashboardStatsType) => {
+      setStats(newStats);
+    };
+
+    // New vehicle event: prepend to event list (dedup by id)
+    const onVehicleNew = (saved: any) => {
+      const newEvent: VehicleEvent = {
+        id: String(saved.vehicleNumber + '_' + saved.eventTime),
+        vehicleNumber: saved.vehicleNumber,
+        vehicleType: saved.vehicleType ?? 'Unknown',
+        area: saved.category === 'SEZ' ? 'SEZ' : 'KC',
+        stickerColor: saved.category === 'SEZ' ? 'green' : 'yellow',
+        direction: saved.eventType,
+        gateName: saved.gate ?? 'Unknown Gate',
+        dateTime: saved.eventTime,
+        ownerName: saved.ownerName ?? undefined,
+      };
+      setEvents(prev => {
+        // Deduplicate: skip if an event with same vehicle+time already exists
+        const exists = prev.some(
+          e => e.vehicleNumber === newEvent.vehicleNumber && e.dateTime === newEvent.dateTime
+        );
+        if (exists) return prev;
+        return [newEvent, ...prev].slice(0, 200); // keep max 200 in memory
+      });
+    };
+
+    // Midnight reset: refetch everything from scratch
+    const onReset = () => {
+      console.log('[Dashboard] dashboard:reset received — refetching data');
+      fetchData();
+    };
+
+    socket.on('dashboard:stats', onStats);
+    socket.on('vehicle:new', onVehicleNew);
+    socket.on('dashboard:reset', onReset);
+
+    return () => {
+      socket.off('dashboard:stats', onStats);
+      socket.off('vehicle:new', onVehicleNew);
+      socket.off('dashboard:reset', onReset);
+    };
+  }, [socket, fetchData]);
 
   const vehicleActivities = events.map(e => ({
     id: e.id,
