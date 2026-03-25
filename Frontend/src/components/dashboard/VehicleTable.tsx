@@ -11,9 +11,10 @@ interface VehicleTableProps {
 /** Format any date string as IST (Asia/Kolkata) */
 function toIST(dateStr: string): string {
   try {
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return dateStr;
-    return date.toLocaleString('en-IN', {
+    if (!dateStr) return '-';
+
+    // Directly format using Intl without double conversion issues
+    const formatter = new Intl.DateTimeFormat('en-IN', {
       timeZone: 'Asia/Kolkata',
       day: '2-digit',
       month: 'short',
@@ -23,6 +24,8 @@ function toIST(dateStr: string): string {
       second: '2-digit',
       hour12: true,
     });
+
+    return formatter.format(new Date(dateStr));
   } catch {
     return dateStr;
   }
