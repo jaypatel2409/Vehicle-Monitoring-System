@@ -8,22 +8,12 @@ interface VehicleTableProps {
   data: VehicleActivity[];
 }
 
-/**
- * Format a timestamp string as IST for display.
- *
- * The backend now returns timestamps like "2026-03-25T09:18:44+05:30".
- * new Date("...+05:30") correctly parses the offset into a UTC moment.
- * Intl then formats that moment in Asia/Kolkata — which is exactly IST,
- * so the result always matches the local clock in India.
- *
- * Example output: "25 Mar 2026, 09:18:44 am"
- */
 function toIST(dateStr: string): string {
   if (!dateStr) return '—';
   try {
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return dateStr;
-    return new Intl.DateTimeFormat('en-IN', {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleString('en-IN', {
       timeZone: 'Asia/Kolkata',
       day: '2-digit',
       month: 'short',
@@ -32,7 +22,7 @@ function toIST(dateStr: string): string {
       minute: '2-digit',
       second: '2-digit',
       hour12: true,
-    }).format(date);
+    });
   } catch {
     return dateStr;
   }
