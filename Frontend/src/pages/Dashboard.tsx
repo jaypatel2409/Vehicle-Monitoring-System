@@ -167,13 +167,13 @@ const Dashboard: React.FC = () => {
 
       {/* Today's IN / OUT stat cards — KC and SEZ are clickable */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {/* Non-clickable total */}
+        {/* Total Inside leads the first row */}
         <StatCard
-          title="Total Vehicles"
-          value={stats.totalVehicles ?? 0}
+          title="Total Inside"
+          value={stats.totalInside}
           icon={Users}
-          variant="default"
-          subtitle="Registered vehicles"
+          variant="primary"
+          subtitle="All categories combined"
         />
 
         {/* KC (Yellow) — Entered: click → /gate/kc */}
@@ -257,12 +257,13 @@ const Dashboard: React.FC = () => {
           />
         </ClickableCard>
 
+        {/* Total Vehicles — moved here from row 1 */}
         <StatCard
-          title="Total Inside"
-          value={stats.totalInside}
+          title="Total Vehicles"
+          value={stats.totalVehicles ?? 0}
           icon={Users}
-          variant="primary"
-          subtitle="All categories combined"
+          variant="default"
+          subtitle="Registered vehicles"
         />
       </div>
 
