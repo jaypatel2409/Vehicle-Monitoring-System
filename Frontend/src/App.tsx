@@ -1,77 +1,86 @@
-// Frontend/src/App.tsx
-// PATCH: Add the /daily-counts route.
-//
-// Find the section in your existing App.tsx that lists protected routes
-// (the section with /dashboard, /monitoring, /reports, /settings, /gate/:gate)
-// and add:
-//
-//   import DailyCounts from "./pages/DailyCounts";          ← add import
-//
-//   <Route path="/daily-counts" element={<DailyCounts />} />  ← add route
-//
-// ─── FULL REPLACEMENT FILE ────────────────────────────────────────────────────
-// Replace your entire App.tsx with the content below.
-// The ONLY changes from your Session 3 App.tsx:
-//   1. Added DailyCounts import
-//   2. Added /daily-counts route
-
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
-import DashboardLayout from "./components/layout/DashboardLayout";
+import React from "react";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  Outlet,
+} from "react-router-dom";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { AuthLayout } from "@/components/layout/AuthLayout";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import VehicleMonitoring from "./pages/VehicleMonitoring";
+import GateVehicles from "./pages/GateVehicles";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
-import GateVehicles from "./pages/GateVehicles";
-import DailyCounts from "./pages/DailyCounts";   // ← NEW
+import NotFound from "./pages/NotFound";
 
-function PrivateRoute({ children }: { children: React.ReactNode }) {
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
+/** Redirects unauthenticated users to /login */
+const ProtectedRoute: React.FC = () => {
   const { isAuthenticated } = useAuth();
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
-}
+  return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
+};
 
-function PublicRoute({ children }: { children: React.ReactNode }) {
+/** Redirects already-authenticated users away from /login */
+const PublicRoute: React.FC = () => {
   const { isAuthenticated } = useAuth();
-  return !isAuthenticated ? <>{children}</> : <Navigate to="/dashboard" replace />;
-}
+  return isAuthenticated ? <Navigate to="/dashboard" replace /> : <Outlet />;
+};
 
-function AppRoutes() {
-  return (
-    <Routes>
-      {/* Public */}
-      <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-
-      {/* Protected */}
-      <Route
-        path="/"
-        element={
-          <PrivateRoute>
-            <DashboardLayout />
-          </PrivateRoute>
-        }
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Toaster />
+      <Sonner />
+      <BrowserRouter
+        future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true,
+        }}
       >
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="monitoring" element={<VehicleMonitoring />} />
-        <Route path="reports" element={<Reports />} />
-        <Route path="settings" element={<Settings />} />
-        <Route path="gate/:gate" element={<GateVehicles />} />
-        <Route path="daily-counts" element={<DailyCounts />} />  {/* ← NEW */}
-      </Route>
+        <AuthProvider>
+          <Routes>
+            {/* Public — login */}
+            <Route element={<PublicRoute />}>
+              <Route element={<AuthLayout />}>
+                <Route path="/login" element={<Login />} />
+              </Route>
+            </Route>
 
-      {/* Fallback */}
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
-  );
-}
+            {/* Protected — all dashboard pages */}
+            <Route element={<ProtectedRoute />}>
+              <Route element={<DashboardLayout />}>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/monitoring" element={<VehicleMonitoring />} />
+                {/* Gate-filtered vehicle list — /gate/kc or /gate/sez */}
+                <Route path="/gate/:gate" element={<GateVehicles />} />
+                <Route path="/reports" element={<Reports />} />
+                <Route path="/settings" element={<Settings />} />
+              </Route>
+            </Route>
 
-export default function App() {
-  return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </BrowserRouter>
-  );
-}
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </AuthProvider>
+      </BrowserRouter>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
+
+export default App;

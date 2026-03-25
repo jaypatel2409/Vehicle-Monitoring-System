@@ -1,104 +1,101 @@
-// Frontend/src/components/layout/Sidebar.tsx
-// PATCH: Add the Daily Counts nav item.
-//
-// Find the navItems array in your existing Sidebar.tsx and add this entry:
-//
-//   import { BarChart3 } from "lucide-react";   ← add to your existing imports
-//
-//   { name: "Daily Counts", href: "/daily-counts", icon: BarChart3 }
-//
-// ─── FULL REPLACEMENT FILE ────────────────────────────────────────────────────
-// Replace your entire Sidebar.tsx with the content below.
-// The ONLY change from your Session 3 Sidebar is the added "Daily Counts" item.
-
-import { NavLink } from "react-router-dom";
-import {
-  LayoutDashboard,
-  FileText,
-  Settings,
-  Car,
-  Activity,
-  BarChart3,
-  X,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-
-const navItems = [
-  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Vehicle Monitoring", href: "/monitoring", icon: Activity },
-  { name: "Reports", href: "/reports", icon: FileText },
-  { name: "Daily Counts", href: "/daily-counts", icon: BarChart3 },   // ← NEW
-  { name: "Settings", href: "/settings", icon: Settings },
-];
+import React from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
+import { 
+  LayoutDashboard, 
+  Car, 
+  FileText, 
+  Settings, 
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  Shield
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface SidebarProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isCollapsed: boolean;
+  onToggle: () => void;
 }
 
-export default function Sidebar({ isOpen, onClose }: SidebarProps) {
-  return (
-    <>
-      {/* Mobile overlay */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 z-20 bg-black/40 lg:hidden"
-          onClick={onClose}
-        />
-      )}
+const navigationItems = [
+  { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
+  { icon: Car, label: 'Vehicle Monitoring', path: '/monitoring' },
+  { icon: FileText, label: 'Reports', path: '/reports' },
+  { icon: Settings, label: 'Settings', path: '/settings' },
+];
 
-      {/* Sidebar panel */}
-      <aside
-        className={cn(
-          "fixed top-0 left-0 z-30 h-full w-64 bg-white border-r border-gray-200 flex flex-col shadow-lg transition-transform duration-300",
-          "lg:static lg:translate-x-0 lg:shadow-none",
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        )}
-      >
-        {/* Logo / Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <Car className="w-5 h-5 text-white" />
+export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
+  const location = useLocation();
+  const { logout } = useAuth();
+
+  return (
+    <aside
+      className={cn(
+        'fixed left-0 top-0 z-40 h-screen bg-sidebar transition-all duration-300 ease-in-out',
+        isCollapsed ? 'w-[72px]' : 'w-64'
+      )}
+    >
+      <div className="flex h-full flex-col">
+        {/* Logo Section */}
+        <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
+              <Shield className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="font-bold text-gray-900 text-base">VMS</span>
+            {!isCollapsed && (
+              <span className="text-lg font-semibold text-sidebar-foreground animate-fade-in">
+                VMS
+              </span>
+            )}
           </div>
-          {/* Close button — mobile only */}
           <button
-            onClick={onClose}
-            className="lg:hidden p-1 rounded hover:bg-gray-100"
+            onClick={onToggle}
+            className="hidden lg:flex h-7 w-7 items-center justify-center rounded-md text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
           >
-            <X className="w-5 h-5 text-gray-500" />
+            {isCollapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
           </button>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.href}
-              to={item.href}
-              onClick={onClose}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-blue-50 text-blue-700"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                )
-              }
-            >
-              <item.icon className="w-5 h-5 flex-shrink-0" />
-              {item.name}
-            </NavLink>
-          ))}
+        {/* Navigation */}
+        <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto scrollbar-thin">
+          {navigationItems.map((item) => {
+            const isActive = location.pathname === item.path;
+            return (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                className={cn(
+                  'sidebar-item',
+                  isActive ? 'sidebar-item-active' : 'sidebar-item-inactive'
+                )}
+              >
+                <item.icon className="h-5 w-5 flex-shrink-0" />
+                {!isCollapsed && (
+                  <span className="truncate animate-fade-in">{item.label}</span>
+                )}
+              </NavLink>
+            );
+          })}
         </nav>
 
-        {/* Footer */}
-        <div className="px-5 py-4 border-t border-gray-200 text-xs text-gray-400">
-          Vehicle Monitoring System
+        {/* Logout */}
+        <div className="border-t border-sidebar-border p-3">
+          <button
+            onClick={logout}
+            className="sidebar-item sidebar-item-inactive w-full hover:text-destructive"
+          >
+            <LogOut className="h-5 w-5 flex-shrink-0" />
+            {!isCollapsed && (
+              <span className="truncate animate-fade-in">Logout</span>
+            )}
+          </button>
         </div>
-      </aside>
-    </>
+      </div>
+    </aside>
   );
-}
+};

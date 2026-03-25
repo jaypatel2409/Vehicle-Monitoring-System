@@ -9,7 +9,6 @@ import hikCentralConfig from './config/hikcentral';
 import { ensureIntegrationStateTable, ensureVehicleEventsDedupeIndex } from './repositories/integrationState.repository';
 import { testHikCentralConnection } from './services/hikcentral.service';
 import dotenv from 'dotenv';
-import { startMidnightReset } from "./services/midnightReset.service";
 
 dotenv.config();
 
@@ -79,8 +78,6 @@ process.on('SIGINT', gracefulShutdown);
   // Start HikCentral polling service
   pollingService = getPollingService();
   pollingService.start(io);
-
-  startMidnightReset();
 
   // Start HTTP server
   httpServer.listen(PORT, () => {
