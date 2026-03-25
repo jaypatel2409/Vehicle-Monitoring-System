@@ -8,10 +8,10 @@ import { testConnection } from './config/db';
 import hikCentralConfig from './config/hikcentral';
 import { ensureIntegrationStateTable, ensureVehicleEventsDedupeIndex } from './repositories/integrationState.repository';
 import { testHikCentralConnection } from './services/hikcentral.service';
+import { startMidnightReset } from './services/midnightReset.service'; // ← NEW
 import dotenv from 'dotenv';
 
 dotenv.config();
-
 
 const PORT = process.env.PORT || 3001;
 
@@ -79,6 +79,10 @@ process.on('SIGINT', gracefulShutdown);
   pollingService = getPollingService();
   pollingService.start(io);
 
+  // ── NEW: Register midnight IST reset cron job ──────────────────────────────
+  startMidnightReset();
+  // ──────────────────────────────────────────────────────────────────────────
+
   // Start HTTP server
   httpServer.listen(PORT, () => {
     console.log(`
@@ -88,6 +92,7 @@ process.on('SIGINT', gracefulShutdown);
 🌐 Environment: ${process.env.NODE_ENV || 'development'}
 🔌 Socket.IO enabled
 🔄 HikCentral polling: ${hikCentralConfig.useMock ? 'Mock Mode' : 'Real API'}
+🕛 Midnight reset: enabled (00:00 IST)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     `);
   }).on('error', (err: NodeJS.ErrnoException) => {
@@ -112,4 +117,3 @@ process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
   gracefulShutdown();
 });
-

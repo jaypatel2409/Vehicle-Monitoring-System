@@ -19,6 +19,7 @@ import VehicleMonitoring from "./pages/VehicleMonitoring";
 import GateVehicles from "./pages/GateVehicles";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+import DailyCounts from "./pages/DailyCounts"; // ← NEW
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -71,6 +72,7 @@ const App = () => (
                 <Route path="/gate/:gate" element={<GateVehicles />} />
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/daily-counts" element={<DailyCounts />} /> {/* ← NEW */}
               </Route>
             </Route>
 

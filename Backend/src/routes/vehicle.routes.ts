@@ -6,6 +6,7 @@ import {
   getCountsByDateRange,
   exportEvents,
 } from '../controllers/vehicle.controller';
+import { getDailySnapshot } from '../controllers/dailyCounts.controller'; // ← NEW
 import { authenticate } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -48,5 +49,11 @@ router.get('/export', exportEvents);
  */
 router.get('/counts', getCountsByDateRange);
 
-export default router;
+/**
+ * @route   GET /api/vehicles/daily-snapshot
+ * @desc    Get historical daily totals (stored at midnight IST)
+ * @access  Private
+ */
+router.get('/daily-snapshot', getDailySnapshot); // ← NEW
 
+export default router;

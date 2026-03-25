@@ -1,13 +1,14 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Car, 
-  FileText, 
-  Settings, 
+import {
+  LayoutDashboard,
+  Car,
+  FileText,
+  Settings,
   LogOut,
   X,
-  Shield
+  Shield,
+  BarChart3,  // ← NEW
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,6 +22,7 @@ const navigationItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
   { icon: Car, label: 'Vehicle Monitoring', path: '/monitoring' },
   { icon: FileText, label: 'Reports', path: '/reports' },
+  { icon: BarChart3, label: 'Daily Counts', path: '/daily-counts' }, // ← NEW
   { icon: Settings, label: 'Settings', path: '/settings' },
 ];
 
@@ -28,14 +30,8 @@ export const MobileSidebar: React.FC<MobileSidebarProps> = ({ isOpen, onClose })
   const location = useLocation();
   const { logout } = useAuth();
 
-  const handleLogout = () => {
-    logout();
-    onClose();
-  };
-
-  const handleNavClick = () => {
-    onClose();
-  };
+  const handleLogout = () => { logout(); onClose(); };
+  const handleNavClick = () => { onClose(); };
 
   return (
     <>

@@ -1,100 +1,91 @@
 // Backend/src/services/midnightReset.service.ts
 //
-// Runs a cron job that fires at exactly 00:00:00 IST every day.
-// It does two things:
-//  1. Resets vehicle_state.entries_today and exits_today to 0 for all vehicles.
-//  2. Reads the current daily totals from daily_counts and saves them to
-//     daily_snapshot (a new table — see the migration below) so the
-//     Daily Counts page can display historical per-day totals.
+// Schedules a daily job at 00:00 IST to:
+//  1. Save today's totals from daily_counts → daily_snapshot table
+//  2. Reset vehicle_state.entries_today and exits_today to 0
 //
-// IMPORTANT: Add this service to server.ts:
-//   import { startMidnightReset } from "./services/midnightReset.service";
+// HOW TO ADD TO server.ts:
+//   import { startMidnightReset } from './services/midnightReset.service';
+//   // Add this line right after pollingService.start(io):
 //   startMidnightReset();
+//
+// INSTALL:
+//   cd Backend && npm install node-cron && npm install --save-dev @types/node-cron
 
-import cron from "node-cron";
-import { query } from "../config/db";
-import { logger } from "../utils/logger";
+import cron from 'node-cron';
+import { query } from '../config/db';
 
-/**
- * Midnight IST in cron = "0 0 18 * * *" UTC (IST = UTC+5:30).
- * We use the "Asia/Kolkata" timezone option in node-cron so we can
- * just write "0 0 * * *" and node-cron handles the offset.
- */
-export function startMidnightReset(): void {
-    // Fires at 00:00 IST every day
-    cron.schedule(
-        "0 0 * * *",
-        async () => {
-            logger.info("[MidnightReset] Starting midnight IST reset...");
-            try {
-                await snapshotAndReset();
-                logger.info("[MidnightReset] Reset completed successfully.");
-            } catch (err) {
-                logger.errorWithCause("[MidnightReset] Reset failed", err);
-            }
-        },
-        {
-            timezone: "Asia/Kolkata",
-        }
-    );
-
-    logger.info("[MidnightReset] Cron job scheduled — resets at 00:00 IST daily.");
-}
+const ENSURE_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS daily_snapshot (
+    id            BIGSERIAL    PRIMARY KEY,
+    snapshot_date DATE         NOT NULL,
+    category      VARCHAR(3)   NOT NULL,
+    direction     VARCHAR(3)   NOT NULL,
+    gate_name     VARCHAR(50)  NOT NULL,
+    total_count   INTEGER      NOT NULL DEFAULT 0,
+    snapped_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    UNIQUE (snapshot_date, category, direction, gate_name)
+  );
+  CREATE INDEX IF NOT EXISTS idx_snapshot_date ON daily_snapshot (snapshot_date DESC);
+`;
 
 /**
- * Takes a snapshot of today's daily_counts into daily_snapshot,
- * then resets vehicle_state counters to 0.
- *
- * This function is also exported so it can be called manually
- * (e.g. from an admin endpoint or seed script).
+ * Takes a snapshot of the current day's counts and resets vehicle_state counters.
+ * Exported so it can also be called from an admin endpoint or test.
  */
 export async function snapshotAndReset(): Promise<void> {
-    // 1. Ensure the snapshot table exists (idempotent).
-    await query(`
-    CREATE TABLE IF NOT EXISTS daily_snapshot (
-      id            BIGSERIAL PRIMARY KEY,
-      snapshot_date DATE        NOT NULL,
-      category      VARCHAR(3)  NOT NULL,
-      direction     VARCHAR(3)  NOT NULL,
-      gate_name     VARCHAR(50) NOT NULL,
-      total_count   INTEGER     NOT NULL DEFAULT 0,
-      snapped_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE (snapshot_date, category, direction, gate_name)
-    );
-    CREATE INDEX IF NOT EXISTS idx_snapshot_date ON daily_snapshot (snapshot_date DESC);
-  `);
+    // Ensure the snapshot table exists
+    await query(ENSURE_TABLE_SQL);
 
-    // 2. Get today's date in IST for the snapshot
-    const istDateResult = await query(
+    // Get today's date in IST (the date that is ending at midnight)
+    const { rows } = await query(
         `SELECT (NOW() AT TIME ZONE 'Asia/Kolkata')::DATE AS today`
     );
-    const today: string = istDateResult.rows[0].today;
+    const today: string = rows[0].today; // e.g. "2026-03-25"
 
-    // 3. Upsert today's totals from daily_counts into daily_snapshot
+    // Copy today's daily_counts totals into daily_snapshot
     await query(
-        `
-    INSERT INTO daily_snapshot (snapshot_date, category, direction, gate_name, total_count)
-    SELECT
-      $1::DATE,
-      category,
-      direction,
-      gate_name,
-      COALESCE(SUM(total_count), 0)
-    FROM daily_counts
-    WHERE count_date = $1::DATE
-    GROUP BY category, direction, gate_name
-    ON CONFLICT (snapshot_date, category, direction, gate_name)
-    DO UPDATE SET
-      total_count = EXCLUDED.total_count,
-      snapped_at  = NOW()
-    `,
+        `INSERT INTO daily_snapshot (snapshot_date, category, direction, gate_name, total_count)
+     SELECT
+       $1::DATE,
+       category,
+       direction,
+       gate_name,
+       COALESCE(SUM(total_count), 0)
+     FROM daily_counts
+     WHERE count_date = $1::DATE
+     GROUP BY category, direction, gate_name
+     ON CONFLICT (snapshot_date, category, direction, gate_name)
+     DO UPDATE SET
+       total_count = EXCLUDED.total_count,
+       snapped_at  = NOW()`,
         [today]
     );
 
-    // 4. Reset vehicle_state counters
-    await query(
-        `UPDATE vehicle_state SET entries_today = 0, exits_today = 0`
+    // Reset today's running counters on vehicle_state
+    await query(`UPDATE vehicle_state SET entries_today = 0, exits_today = 0`);
+
+    console.log(`[MidnightReset] ✅ Snapshot saved for ${today} and vehicle_state counters reset.`);
+}
+
+/**
+ * Registers the node-cron job.
+ * The cron expression "0 0 * * *" with timezone "Asia/Kolkata" fires at
+ * exactly 00:00:00 IST every day.
+ */
+export function startMidnightReset(): void {
+    cron.schedule(
+        '0 0 * * *',
+        async () => {
+            console.log('[MidnightReset] Running midnight IST reset...');
+            try {
+                await snapshotAndReset();
+            } catch (err) {
+                console.error('[MidnightReset] ❌ Reset failed:', err);
+            }
+        },
+        { timezone: 'Asia/Kolkata' }
     );
 
-    logger.info(`[MidnightReset] Snapshot saved for ${today}, vehicle_state counters reset.`);
+    console.log('[MidnightReset] ✅ Cron job registered — fires at 00:00 IST daily.');
 }

@@ -8,12 +8,23 @@ interface VehicleTableProps {
   data: VehicleActivity[];
 }
 
-/** Format any date string as IST (Asia/Kolkata) */
+/**
+ * Format any date string as IST (Asia/Kolkata).
+ *
+ * The API returns timestamps with an explicit offset, e.g.:
+ *   "2026-03-18T22:46:29+05:30"
+ * new Date() correctly parses this — the +05:30 is honoured automatically.
+ * We then format using Intl with timeZone: 'Asia/Kolkata' so the displayed
+ * time matches what someone in India would see on a clock.
+ *
+ * Result example: "25 Mar 2026, 03:04:13 am"
+ */
 function toIST(dateStr: string): string {
+  if (!dateStr) return '—';
   try {
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) return dateStr;
-    return date.toLocaleString('en-IN', {
+    return new Intl.DateTimeFormat('en-IN', {
       timeZone: 'Asia/Kolkata',
       day: '2-digit',
       month: 'short',
@@ -22,7 +33,7 @@ function toIST(dateStr: string): string {
       minute: '2-digit',
       second: '2-digit',
       hour12: true,
-    });
+    }).format(date);
   } catch {
     return dateStr;
   }
@@ -164,6 +175,7 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
                     <span className="text-sm text-muted-foreground">{activity.gateName}</span>
                   </td>
                   <td className="px-5 py-4">
+                    {/* toIST correctly converts the +05:30 timestamp to IST display */}
                     <span className="text-sm text-muted-foreground">{toIST(activity.dateTime)}</span>
                   </td>
                 </tr>
