@@ -14,7 +14,6 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { apiClient } from '@/api/vehicleApi';
-import { useSocket } from '@/hooks/useSocket';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -103,8 +102,6 @@ const Reports: React.FC = () => {
   const [exporting, setExporting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const socket = useSocket();
-
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const loadEvents = useCallback(async (f: Filters, p: number) => {
@@ -114,8 +111,7 @@ const Reports: React.FC = () => {
       const { data } = await apiClient.get('/api/vehicles/events', { params: buildParams(f, p) });
       if (!data.success) throw new Error(data.message || 'Failed to fetch events');
       setEvents(data.data);
-      const count = data.pagination?.count ?? data.data.length;
-      setTotal(count);
+      setTotal(data.pagination?.count ?? data.data.length);
     } catch (e: any) {
       setError(e.message || 'Failed to load events');
       setEvents([]);
@@ -129,52 +125,6 @@ const Reports: React.FC = () => {
 
   // Load when page changes (using currently applied filters)
   useEffect(() => { loadEvents(applied, page); }, [page]); // eslint-disable-line
-
-  // ── Socket.IO real-time subscriptions ────────────────────────────────────
-  useEffect(() => {
-    if (!socket) return;
-
-    const onVehicleNew = (saved: any) => {
-      // Only prepend when on page 1 with no active filters applied
-      const noFilters =
-        !applied.startDate && !applied.endDate &&
-        applied.category === 'all' && applied.direction === 'all' &&
-        applied.gateName === 'all' && !applied.vehicleNumber.trim();
-      if (page !== 1 || !noFilters) return;
-
-      const newEvent = {
-        id: String(saved.vehicleNumber + '_' + saved.eventTime),
-        vehicleNumber: saved.vehicleNumber,
-        ownerName: saved.ownerName ?? undefined,
-        stickerColor: (saved.category === 'SEZ' ? 'green' : 'yellow') as 'green' | 'yellow',
-        direction: saved.eventType as 'IN' | 'OUT',
-        gateName: saved.gate ?? 'Unknown Gate',
-        cameraName: saved.cameraName ?? undefined,
-        dateTime: saved.eventTime,
-      };
-      setEvents(prev => {
-        const exists = prev.some(
-          e => e.vehicleNumber === newEvent.vehicleNumber && e.dateTime === newEvent.dateTime
-        );
-        if (exists) return prev;
-        return [newEvent, ...prev].slice(0, PAGE_SIZE);
-      });
-    };
-
-    // Midnight reset — clear and refetch
-    const onReset = () => {
-      console.log('[Reports] dashboard:reset received — refetching');
-      setPage(1);
-      loadEvents(EMPTY_FILTERS, 1);
-    };
-
-    socket.on('vehicle:new', onVehicleNew);
-    socket.on('dashboard:reset', onReset);
-    return () => {
-      socket.off('vehicle:new', onVehicleNew);
-      socket.off('dashboard:reset', onReset);
-    };
-  }, [socket, applied, page, loadEvents]);
 
   const handleApply = () => {
     setApplied(filters);

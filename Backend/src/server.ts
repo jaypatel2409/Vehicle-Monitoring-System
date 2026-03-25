@@ -80,7 +80,7 @@ process.on('SIGINT', gracefulShutdown);
   pollingService.start(io);
 
   // ── NEW: Register midnight IST reset cron job ──────────────────────────────
-  startMidnightReset(io);
+  startMidnightReset();
   // ──────────────────────────────────────────────────────────────────────────
 
   // Start HTTP server

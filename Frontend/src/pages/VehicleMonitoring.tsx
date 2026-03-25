@@ -35,7 +35,6 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { getInsideVehicles, getDashboardStats, type InsideVehicle } from '@/api/vehicleApi';
-import { useSocket } from '@/hooks/useSocket';
 
 const POLL_INTERVAL_MS = 10_000; // 10 seconds — matches backend poll cycle
 
@@ -80,7 +79,6 @@ const VehicleMonitoring: React.FC = () => {
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const socket = useSocket();
 
   const fetchData = useCallback(async () => {
     try {
@@ -102,7 +100,7 @@ const VehicleMonitoring: React.FC = () => {
     }
   }, []);
 
-  // Start/stop polling (REST fallback every 10 s)
+  // Start/stop polling
   useEffect(() => {
     fetchData();
     intervalRef.current = setInterval(fetchData, POLL_INTERVAL_MS);
@@ -113,58 +111,6 @@ const VehicleMonitoring: React.FC = () => {
       if (tickRef.current) clearInterval(tickRef.current);
     };
   }, [fetchData]);
-
-  // ── Socket.IO real-time subscriptions ────────────────────────────────────
-  useEffect(() => {
-    if (!socket) return;
-
-    // Instant stat update from backend broadcast
-    const onStats = (newStats: any) => {
-      setTotalInside(newStats.totalInside ?? 0);
-      setKcInside(newStats.yellowSticker?.inside ?? 0);
-      setSezInside(newStats.greenSticker?.inside ?? 0);
-      setIsLive(true);
-    };
-
-    // New vehicle appeared — add to inside list if direction=IN
-    const onVehicleNew = (saved: any) => {
-      if (saved.eventType === 'IN') {
-        const newVehicle: InsideVehicle = {
-          vehicleNumber: saved.vehicleNumber,
-          category: saved.category,
-          vehicleType: saved.vehicleType ?? 'Unknown',
-          lastEventTime: saved.eventTime,
-          lastGate: saved.gate ?? undefined,
-          ownerName: saved.ownerName ?? undefined,
-        };
-        setVehicles(prev => {
-          if (prev.some(v => v.vehicleNumber === newVehicle.vehicleNumber)) return prev;
-          return [newVehicle, ...prev];
-        });
-      } else if (saved.eventType === 'OUT') {
-        // Vehicle exited — remove from inside list
-        setVehicles(prev => prev.filter(v => v.vehicleNumber !== saved.vehicleNumber));
-      }
-      setLastRefreshed(new Date());
-      setSecondsSince(0);
-    };
-
-    // Midnight reset — fully refetch
-    const onReset = () => {
-      console.log('[VehicleMonitoring] dashboard:reset received — refetching');
-      fetchData();
-    };
-
-    socket.on('dashboard:stats', onStats);
-    socket.on('vehicle:new', onVehicleNew);
-    socket.on('dashboard:reset', onReset);
-
-    return () => {
-      socket.off('dashboard:stats', onStats);
-      socket.off('vehicle:new', onVehicleNew);
-      socket.off('dashboard:reset', onReset);
-    };
-  }, [socket, fetchData]);
 
   const handleManualRefresh = () => {
     setLoading(true);
