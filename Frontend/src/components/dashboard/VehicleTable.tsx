@@ -185,43 +185,68 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between px-5 py-4 border-t border-border">
-        <p className="text-sm text-muted-foreground">
-          {data.length === 0
-            ? 'No results'
-            : `Showing ${(currentPage - 1) * itemsPerPage + 1}–${Math.min(currentPage * itemsPerPage, data.length)} of ${data.length} results`}
-        </p>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:pointer-events-none transition-colors"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-5 py-4 border-t border-border flex-wrap gap-2">
+          <p className="text-sm text-muted-foreground">
+            {`Showing ${(currentPage - 1) * itemsPerPage + 1}–${Math.min(currentPage * itemsPerPage, data.length)} of ${data.length} results`}
+          </p>
+          <div className="flex items-center gap-1">
+            {/* Prev */}
             <button
-              key={page}
-              onClick={() => setCurrentPage(page)}
-              className={cn(
-                'flex h-8 w-8 items-center justify-center rounded-md text-sm font-medium transition-colors',
-                page === currentPage
-                  ? 'bg-primary text-primary-foreground'
-                  : 'border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-              )}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:pointer-events-none transition-colors"
             >
-              {page}
+              <ChevronLeft className="h-4 w-4" />
             </button>
-          ))}
-          <button
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:pointer-events-none transition-colors"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
+
+            {/* Smart page numbers with ellipsis */}
+            {(() => {
+              const delta = 2; // pages to show either side of current
+              const pages: (number | '…')[] = [];
+              let prev = 0;
+              for (let p = 1; p <= totalPages; p++) {
+                if (
+                  p === 1 ||
+                  p === totalPages ||
+                  (p >= currentPage - delta && p <= currentPage + delta)
+                ) {
+                  if (prev && p - prev > 1) pages.push('…');
+                  pages.push(p);
+                  prev = p;
+                }
+              }
+              return pages.map((p, idx) =>
+                p === '…' ? (
+                  <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground select-none">…</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => setCurrentPage(p as number)}
+                    className={cn(
+                      'flex h-8 w-8 items-center justify-center rounded-md text-sm font-medium transition-colors',
+                      p === currentPage
+                        ? 'bg-primary text-primary-foreground'
+                        : 'border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    )}
+                  >
+                    {p}
+                  </button>
+                )
+              );
+            })()}
+
+            {/* Next */}
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:pointer-events-none transition-colors"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
