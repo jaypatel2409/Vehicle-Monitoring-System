@@ -117,3 +117,23 @@ export async function getVehicleCounts(startDate: string, endDate: string): Prom
   if (!data.success) throw new Error(data.message || 'Failed to fetch counts');
   return data.data;
 }
+
+export interface DailyCount {
+  count_date: string;
+  category: string;
+  direction: string;
+  gate_name: string;
+  total_count: number;
+}
+
+/** Alias used by Charts.tsx — maps CountsRow fields to DailyCount shape. */
+export async function getDailyCounts(startDate: string, endDate: string): Promise<DailyCount[]> {
+  const rows = await getVehicleCounts(startDate, endDate);
+  return rows.map(r => ({
+    count_date: r.date,
+    category: r.category,
+    direction: r.direction,
+    gate_name: r.gate_name,
+    total_count: r.count,
+  }));
+}

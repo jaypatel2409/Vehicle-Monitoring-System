@@ -1,445 +1,275 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+// Frontend/src/components/dashboard/Charts.tsx
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  LineChart, Line,
-  BarChart, Bar,
-  XAxis, YAxis,
-  CartesianGrid, Tooltip,
-  ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
-} from 'recharts';
-import { Button } from '@/components/ui/button';
-import { Download, Loader2, Calendar } from 'lucide-react';
-import { apiClient } from '@/api/vehicleApi';
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  BarChart, Bar, PieChart, Pie, Cell, ResponsiveContainer,
+} from "recharts";
+import { getDailyCounts } from "@/api/vehicleApi";
+import { Button } from "@/components/ui/button";
+import { Download, RefreshCw } from "lucide-react";
+import html2canvas from "html2canvas";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type TimeMode = 'today' | 'yesterday' | 'custom';
-
-interface HourlyPoint {
-  hour: string;
-  in: number;
-  out: number;
-  total: number;
+// ─── IST helper ──────────────────────────────────────────────────────────────
+function toIST(date: Date): string {
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric", month: "short", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: true,
+  }).format(date);
 }
 
-interface DailyRow {
-  date: string;
+function todayIST(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+}
+function yesterdayIST(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(d);
+}
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+interface DailyCount {
+  count_date: string;
   category: string;
   direction: string;
   gate_name: string;
-  count: number;
+  total_count: number;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+interface ChartDataPoint {
+  date: string;
+  kcIn: number; kcOut: number;
+  sezIn: number; sezOut: number;
+  total: number;
+}
 
-function getPresetRange(mode: 'today' | 'yesterday'): { start: Date; end: Date } {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (mode === 'today') {
-    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
-    return { start: today, end: tomorrow };
-  } else {
-    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-    return { start: yesterday, end: today };
+// ─── Download helper (downloads all charts as a single PNG) ──────────────────
+async function downloadAllChartsAsImage(containerRef: React.RefObject<HTMLDivElement>) {
+  if (!containerRef.current) return;
+  try {
+    const canvas = await html2canvas(containerRef.current, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+      logging: false,
+    });
+    const url = canvas.toDataURL("image/png");
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `dashboard-charts-${todayIST()}.png`;
+    a.click();
+  } catch (err) {
+    console.error("Chart image download failed:", err);
   }
 }
 
-function toDateInputValue(d: Date): string {
-  return d.toISOString().substring(0, 10);
-}
-
-function buildHourlyBuckets(events: any[]): HourlyPoint[] {
-  const buckets: Record<string, { in: number; out: number }> = {};
-  for (let h = 0; h < 24; h++) {
-    buckets[String(h).padStart(2, '0') + ':00'] = { in: 0, out: 0 };
-  }
-  for (const ev of events) {
-    const raw = ev.dateTime || ev.event_time || '';
-    const dt = new Date(raw);
-    if (isNaN(dt.getTime())) continue;
-    const key = String(dt.getHours()).padStart(2, '0') + ':00';
-    if (!buckets[key]) continue;
-    if (ev.direction === 'IN') buckets[key].in++;
-    if (ev.direction === 'OUT') buckets[key].out++;
-  }
-  return Object.entries(buckets)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([hour, v]) => ({ hour, in: v.in, out: v.out, total: v.in + v.out }));
-}
-
-// ── Shared Tooltip ────────────────────────────────────────────────────────────
-
-const ChartTooltip = ({ active, payload, label }: any) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-card border border-border rounded-lg shadow-lg px-3 py-2 text-sm">
-      <p className="font-semibold text-foreground mb-1">{label}</p>
-      {payload.map((e: any, i: number) => (
-        <p key={i} style={{ color: e.color }}>
-          {e.name}: <span className="font-semibold">{e.value}</span>
-        </p>
-      ))}
-    </div>
-  );
-};
-
-// ── Traffic Line Chart ────────────────────────────────────────────────────────
-
-export const TrafficLineChart: React.FC = () => {
-  const [mode, setMode] = useState<TimeMode>('today');
-  const [customStart, setCustomStart] = useState<string>(() => toDateInputValue(new Date()));
-  const [customEnd, setCustomEnd] = useState<string>(() => toDateInputValue(new Date()));
-  const [data, setData] = useState<HourlyPoint[]>([]);
+// ─── Traffic Line Chart ───────────────────────────────────────────────────────
+export function TrafficLineChart() {
+  type Mode = "today" | "yesterday" | "custom";
+  const [mode, setMode] = useState<Mode>("today");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [appliedFrom, setAppliedFrom] = useState(todayIST());
+  const [appliedTo, setAppliedTo] = useState(todayIST());
+  const [data, setData] = useState<ChartDataPoint[]>([]);
   const [loading, setLoading] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<string>("");
+  const chartRef = useRef<HTMLDivElement>(null);
 
-  // Derive the active date range from current mode/custom inputs
-  const getActiveDateRange = useCallback((): { start: Date; end: Date } | null => {
-    if (mode === 'today' || mode === 'yesterday') {
-      return getPresetRange(mode);
-    }
-    // Custom mode
-    if (!customStart || !customEnd) return null;
-    const start = new Date(customStart);
-    const end = new Date(customEnd);
-    end.setDate(end.getDate() + 1); // include the full end day
-    if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return null;
-    return { start, end };
-  }, [mode, customStart, customEnd]);
-
-  const load = useCallback(async () => {
-    const range = getActiveDateRange();
-    if (!range) return;
-
+  const fetchData = useCallback(async (from: string, to: string) => {
     setLoading(true);
-    setError(null);
     try {
-      const { data: res } = await apiClient.get('/api/vehicles/events', {
-        params: {
-          startDate: range.start.toISOString(),
-          endDate: range.end.toISOString(),
-          limit: 2000,
-          offset: 0,
-        },
+      const raw: DailyCount[] = await getDailyCounts(from, to);
+      const map: Record<string, ChartDataPoint> = {};
+      raw.forEach((r) => {
+        if (!map[r.count_date]) map[r.count_date] = { date: r.count_date, kcIn: 0, kcOut: 0, sezIn: 0, sezOut: 0, total: 0 };
+        const p = map[r.count_date];
+        if (r.category === "KC" && r.direction === "IN") p.kcIn += r.total_count;
+        if (r.category === "KC" && r.direction === "OUT") p.kcOut += r.total_count;
+        if (r.category === "SEZ" && r.direction === "IN") p.sezIn += r.total_count;
+        if (r.category === "SEZ" && r.direction === "OUT") p.sezOut += r.total_count;
+        p.total += r.total_count;
       });
-      if (!res.success) throw new Error(res.message);
-      setData(buildHourlyBuckets(res.data));
-    } catch (e: any) {
-      setError(e.message || 'Failed to load chart');
+      setData(Object.values(map).sort((a, b) => a.date.localeCompare(b.date)));
+      setLastRefreshed(toIST(new Date()));
     } finally {
       setLoading(false);
     }
-  }, [getActiveDateRange]);
+  }, []);
 
-  // Auto-refresh every 15 s for today view; manual for custom
+  // Auto-refresh every 15s in Today mode
   useEffect(() => {
-    load();
+    fetchData(appliedFrom, appliedTo);
+    if (mode !== "today") return;
+    const t = setInterval(() => fetchData(appliedFrom, appliedTo), 15000);
+    return () => clearInterval(t);
+  }, [appliedFrom, appliedTo, mode, fetchData]);
 
-    if (intervalRef.current) clearInterval(intervalRef.current);
-
-    if (mode === 'today') {
-      intervalRef.current = setInterval(load, 15_000);
-    }
-
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [load, mode]);
-
-  // PDF export — uses apiClient so Authorization header is attached automatically,
-  // then triggers a fetch-based download (avoids the window.open token problem)
-  const handlePdfExport = async () => {
-    const range = getActiveDateRange();
-    if (!range) return;
-
-    setExporting(true);
-    try {
-      // Step 1: ask backend to generate the file
-      const { data: res } = await apiClient.post('/api/reports/export', {
-        format: 'pdf',
-        startDate: range.start.toISOString(),
-        endDate: range.end.toISOString(),
-      });
-      if (!res.success) throw new Error(res.message);
-
-      // Step 2: download with token attached (fetch instead of window.open)
-      const token = localStorage.getItem('token');
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-      const dlRes = await fetch(`${baseUrl}${res.data.downloadUrl}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-
-      if (!dlRes.ok) throw new Error('Download failed');
-
-      const blob = await dlRes.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = res.data.filename || 'vehicle-report.pdf';
-      document.body.appendChild(a);
-      a.click();
-      URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (e: any) {
-      console.error('PDF export failed:', e.message);
-      alert(`PDF export failed: ${e.message}`);
-    } finally {
-      setExporting(false);
-    }
+  const handleModeChange = (m: Mode) => {
+    setMode(m);
+    if (m === "today") { const d = todayIST(); setAppliedFrom(d); setAppliedTo(d); }
+    else if (m === "yesterday") { const d = yesterdayIST(); setAppliedFrom(d); setAppliedTo(d); }
   };
-
-  // Show hours 06:00–23:00 to reduce noise during off-hours for preset modes,
-  // show all hours for custom (multi-day) ranges
-  const isMultiDay = mode === 'custom' &&
-    customStart !== customEnd && customStart && customEnd;
-  const display = isMultiDay ? data : data.filter(d => parseInt(d.hour) >= 6);
-
-  const modeLabel = mode === 'today' ? 'Today' : mode === 'yesterday' ? 'Yesterday' : `${customStart} → ${customEnd}`;
+  const handleApplyCustom = () => { if (customFrom && customTo) { setAppliedFrom(customFrom); setAppliedTo(customTo); } };
 
   return (
-    <div className="bg-card rounded-lg border border-border p-5 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+    <div className="bg-white rounded-xl p-6 shadow-sm border">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-foreground">Vehicle Traffic</h3>
-          <p className="text-sm text-muted-foreground">Hourly entry &amp; exit — {modeLabel}</p>
+          <h3 className="text-lg font-semibold text-gray-800">Traffic Overview</h3>
+          {lastRefreshed && <p className="text-xs text-gray-400 mt-0.5">Last refreshed: {lastRefreshed}</p>}
         </div>
-
-        <div className="flex flex-wrap items-start gap-2">
-          {/* Mode toggle */}
-          <div className="flex rounded-md border border-border overflow-hidden text-sm">
-            {(['today', 'yesterday', 'custom'] as TimeMode[]).map(m => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                className={[
-                  'px-3 py-1.5 font-medium transition-colors capitalize flex items-center gap-1.5',
-                  mode === m
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-transparent text-muted-foreground hover:bg-muted',
-                ].join(' ')}
-              >
-                {m === 'custom' && <Calendar className="h-3.5 w-3.5" />}
-                {m === 'today' ? 'Today' : m === 'yesterday' ? 'Yesterday' : 'Custom'}
-              </button>
-            ))}
-          </div>
-
-          {/* PDF export */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePdfExport}
-            disabled={exporting || loading}
-            className="gap-2"
-          >
-            {exporting
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : <Download className="h-4 w-4" />}
-            Export PDF
+        <div className="flex flex-wrap items-center gap-2">
+          {(["today", "yesterday", "custom"] as Mode[]).map((m) => (
+            <button key={m} onClick={() => handleModeChange(m)}
+              className={`px-3 py-1 text-sm rounded-full border transition-colors ${mode === m ? "bg-blue-600 text-white border-blue-600" : "text-gray-600 border-gray-300 hover:border-blue-400"}`}>
+              {m.charAt(0).toUpperCase() + m.slice(1)}
+            </button>
+          ))}
+          {mode === "custom" && (
+            <div className="flex items-center gap-2">
+              <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+                className="text-sm border rounded px-2 py-1" />
+              <span className="text-gray-500 text-sm">to</span>
+              <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+                className="text-sm border rounded px-2 py-1" />
+              <button onClick={handleApplyCustom}
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded-full hover:bg-blue-700">Apply</button>
+            </div>
+          )}
+          <Button size="sm" variant="outline" onClick={() => fetchData(appliedFrom, appliedTo)} disabled={loading}>
+            <RefreshCw className={`w-3 h-3 mr-1 ${loading ? "animate-spin" : ""}`} />Refresh
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => downloadAllChartsAsImage(chartRef)}>
+            <Download className="w-3 h-3 mr-1" />Save Image
           </Button>
         </div>
       </div>
-
-      {/* Custom date range inputs */}
-      {mode === 'custom' && (
-        <div className="flex flex-wrap items-end gap-3 mb-5 p-3 bg-muted/40 rounded-lg border border-border">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">From</label>
-            <input
-              type="date"
-              value={customStart}
-              max={customEnd || undefined}
-              onChange={e => setCustomStart(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">To</label>
-            <input
-              type="date"
-              value={customEnd}
-              min={customStart || undefined}
-              onChange={e => setCustomEnd(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-          <Button size="sm" onClick={load} disabled={loading} className="h-9">
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
-          </Button>
-        </div>
-      )}
-
-      {/* Chart */}
-      {loading ? (
-        <div className="h-72 flex items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : error ? (
-        <div className="h-72 flex items-center justify-center text-sm text-destructive">{error}</div>
-      ) : (
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={display} margin={{ top: 4, right: 12, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-              <XAxis
-                dataKey="hour"
-                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
-                axisLine={{ stroke: 'hsl(var(--border))' }}
-                tickLine={false}
-                interval={isMultiDay ? 'preserveStartEnd' : 1}
-              />
-              <YAxis
-                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-                allowDecimals={false}
-              />
-              <Tooltip content={<ChartTooltip />} />
-              <Legend
-                verticalAlign="top"
-                height={28}
-                formatter={v => <span className="text-sm text-foreground">{v}</span>}
-              />
-              <Line
-                type="monotone" dataKey="in" name="Entries (IN)"
-                stroke="hsl(142, 71%, 45%)" strokeWidth={2}
-                dot={false} activeDot={{ r: 5 }}
-              />
-              <Line
-                type="monotone" dataKey="out" name="Exits (OUT)"
-                stroke="hsl(0, 84%, 60%)" strokeWidth={2}
-                dot={false} activeDot={{ r: 5 }}
-              />
-              <Line
-                type="monotone" dataKey="total" name="Total"
-                stroke="hsl(var(--chart-1))" strokeWidth={2.5}
-                strokeDasharray="5 3" dot={false} activeDot={{ r: 5 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+      <div ref={chartRef}>
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={data} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="kcIn" stroke="#EAB308" strokeWidth={2} name="KC In" dot={false} />
+            <Line type="monotone" dataKey="kcOut" stroke="#CA8A04" strokeWidth={2} name="KC Out" dot={false} />
+            <Line type="monotone" dataKey="sezIn" stroke="#22C55E" strokeWidth={2} name="SEZ In" dot={false} />
+            <Line type="monotone" dataKey="sezOut" stroke="#16A34A" strokeWidth={2} name="SEZ Out" dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
-};
+}
 
-// ── Entries vs Exits Bar Chart (last 7 days) ──────────────────────────────────
-
-export const EntriesExitsChart: React.FC = () => {
-  const [data, setData] = useState<{ name: string; entries: number; exits: number }[]>([]);
-  const [loading, setLoading] = useState(true);
+// ─── Entries vs Exits Chart ───────────────────────────────────────────────────
+export function EntriesExitsChart() {
+  const [data, setData] = useState<ChartDataPoint[]>([]);
+  const chartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const end = new Date();
-        const start = new Date(); start.setDate(start.getDate() - 7);
-        const { data: res } = await apiClient.get('/api/vehicles/counts', {
-          params: { startDate: start.toISOString(), endDate: end.toISOString() },
-        });
-        if (!res.success) throw new Error(res.message);
-
-        const byDate: Record<string, { entries: number; exits: number }> = {};
-        for (const r of (res.data as DailyRow[])) {
-          const d = String(r.date).substring(5, 10); // MM-DD
-          if (!byDate[d]) byDate[d] = { entries: 0, exits: 0 };
-          if (r.direction === 'IN') byDate[d].entries += Number(r.count);
-          if (r.direction === 'OUT') byDate[d].exits += Number(r.count);
-        }
-        setData(
-          Object.entries(byDate)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([name, v]) => ({ name, ...v }))
-        );
-      } catch {
-        setData([]);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    const from = yesterdayIST();
+    const to = todayIST();
+    getDailyCounts(from, to).then((raw: DailyCount[]) => {
+      const map: Record<string, ChartDataPoint> = {};
+      raw.forEach((r) => {
+        if (!map[r.count_date]) map[r.count_date] = { date: r.count_date, kcIn: 0, kcOut: 0, sezIn: 0, sezOut: 0, total: 0 };
+        const p = map[r.count_date];
+        if (r.direction === "IN") { p.kcIn += r.category === "KC" ? r.total_count : 0; p.sezIn += r.category === "SEZ" ? r.total_count : 0; }
+        if (r.direction === "OUT") { p.kcOut += r.category === "KC" ? r.total_count : 0; p.sezOut += r.category === "SEZ" ? r.total_count : 0; }
+      });
+      setData(Object.values(map).sort((a, b) => a.date.localeCompare(b.date)));
+    });
   }, []);
 
   return (
-    <div className="bg-card rounded-lg border border-border p-5 animate-fade-in">
-      <h3 className="text-lg font-semibold text-foreground mb-1">Entries vs Exits</h3>
-      <p className="text-sm text-muted-foreground mb-4">Last 7 days vehicle flow</p>
-      <div className="h-64">
-        {loading ? (
-          <div className="h-full flex items-center justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} barGap={4}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-              <XAxis
-                dataKey="name"
-                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
-                axisLine={{ stroke: 'hsl(var(--border))' }}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
-                axisLine={false} tickLine={false} allowDecimals={false}
-              />
-              <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey="entries" name="Entries" fill="hsl(142, 71%, 45%)" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="exits" name="Exits" fill="hsl(0, 84%, 60%)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
+    <div className="bg-white rounded-xl p-6 shadow-sm border">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-800">Entries vs Exits</h3>
+        <Button size="sm" variant="outline" onClick={() => downloadAllChartsAsImage(chartRef)}>
+          <Download className="w-3 h-3 mr-1" />Save Image
+        </Button>
+      </div>
+      <div ref={chartRef}>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={data} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} />
+            <Tooltip />
+            <Legend />
+            <Bar dataKey="kcIn" fill="#EAB308" name="KC Entries" />
+            <Bar dataKey="kcOut" fill="#CA8A04" name="KC Exits" />
+            <Bar dataKey="sezIn" fill="#22C55E" name="SEZ Entries" />
+            <Bar dataKey="sezOut" fill="#16A34A" name="SEZ Exits" />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
-};
-
-// ── Area Distribution Pie (KC vs SEZ) ─────────────────────────────────────────
-
-interface StickerDistributionChartProps {
-  yellowInside?: number;
-  greenInside?: number;
 }
 
-export const StickerDistributionChart: React.FC<StickerDistributionChartProps> = ({
-  yellowInside = 0,
-  greenInside = 0,
-}) => {
-  const COLORS = ['hsl(45, 93%, 47%)', 'hsl(142, 71%, 45%)'];
-  const distribution = [
-    { name: 'KC – Gate 1 (Yellow)', value: yellowInside },
-    { name: 'SEZ – Gate 2 (Green)', value: greenInside },
-  ];
+// ─── Area Distribution Chart ──────────────────────────────────────────────────
+const COLORS = { KC: "#EAB308", SEZ: "#22C55E" };
+
+export function StickerDistributionChart() {
+  const [data, setData] = useState<{ name: string; value: number }[]>([]);
+  const chartRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const from = todayIST();
+    getDailyCounts(from, from).then((raw: DailyCount[]) => {
+      const kc = raw.filter((r) => r.category === "KC").reduce((s, r) => s + r.total_count, 0);
+      const sez = raw.filter((r) => r.category === "SEZ").reduce((s, r) => s + r.total_count, 0);
+      setData([{ name: "KC", value: kc }, { name: "SEZ", value: sez }]);
+    });
+  }, []);
 
   return (
-    <div className="bg-card rounded-lg border border-border p-5 animate-fade-in">
-      <h3 className="text-lg font-semibold text-foreground mb-1">Area Distribution</h3>
-      <p className="text-sm text-muted-foreground mb-4">Currently inside by area</p>
-      <div className="h-64">
-        <ResponsiveContainer width="100%" height="100%">
+    <div className="bg-white rounded-xl p-6 shadow-sm border">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-800">Area Distribution (Today)</h3>
+        <Button size="sm" variant="outline" onClick={() => downloadAllChartsAsImage(chartRef)}>
+          <Download className="w-3 h-3 mr-1" />Save Image
+        </Button>
+      </div>
+      <div ref={chartRef}>
+        <ResponsiveContainer width="100%" height={300}>
           <PieChart>
-            <Pie
-              data={distribution}
-              cx="50%" cy="45%"
-              innerRadius={55} outerRadius={85}
-              paddingAngle={4} dataKey="value"
-            >
-              {distribution.map((_, i) => (
-                <Cell key={i} fill={COLORS[i]} />
+            <Pie data={data} cx="50%" cy="50%" outerRadius={100} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+              {data.map((entry) => (
+                <Cell key={entry.name} fill={COLORS[entry.name as keyof typeof COLORS] ?? "#8884d8"} />
               ))}
             </Pie>
-            <Tooltip content={<ChartTooltip />} />
-            <Legend
-              verticalAlign="bottom" height={36}
-              formatter={v => <span className="text-sm text-foreground">{v}</span>}
-            />
+            <Tooltip />
+            <Legend />
           </PieChart>
         </ResponsiveContainer>
       </div>
     </div>
   );
-};
+}
 
-export const MovementOverTimeChart = TrafficLineChart;
+// ─── Download ALL charts at once ──────────────────────────────────────────────
+// This component wraps all three charts and provides a single "Download All" button.
+export function ChartsSection() {
+  const allChartsRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div>
+      <div className="flex justify-end mb-3">
+        <Button variant="outline" onClick={() => downloadAllChartsAsImage(allChartsRef)}>
+          <Download className="w-4 h-4 mr-2" />Download All Charts as Image
+        </Button>
+      </div>
+      <div ref={allChartsRef} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="lg:col-span-2"><TrafficLineChart /></div>
+        <EntriesExitsChart />
+        <StickerDistributionChart />
+      </div>
+    </div>
+  );
+}

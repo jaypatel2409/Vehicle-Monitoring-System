@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { Sidebar } from './Sidebar';
+import Sidebar from './Sidebar';
 import { Navbar } from './Navbar';
 import { MobileSidebar } from './MobileSidebar';
 import { cn } from '@/lib/utils';
 
-export const DashboardLayout: React.FC = () => {
+export default function DashboardLayout() {
   const { isAuthenticated } = useAuth();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -20,8 +20,8 @@ export const DashboardLayout: React.FC = () => {
       {/* Desktop Sidebar */}
       <div className="hidden lg:block">
         <Sidebar
-          isCollapsed={isSidebarCollapsed}
-          onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          isOpen={!isSidebarCollapsed}
+          onClose={() => setIsSidebarCollapsed(true)}
         />
       </div>
 
