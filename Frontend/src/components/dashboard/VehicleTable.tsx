@@ -64,6 +64,7 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
     }
   };
 
+
   return (
     <div className="bg-card rounded-lg border border-border animate-fade-in">
       {/* Header */}
