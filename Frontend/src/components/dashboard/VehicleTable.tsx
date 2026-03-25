@@ -9,15 +9,14 @@ interface VehicleTableProps {
 }
 
 /**
- * Format any date string as IST (Asia/Kolkata).
+ * Format a timestamp string as IST for display.
  *
- * The API returns timestamps with an explicit offset, e.g.:
- *   "2026-03-18T22:46:29+05:30"
- * new Date() correctly parses this — the +05:30 is honoured automatically.
- * We then format using Intl with timeZone: 'Asia/Kolkata' so the displayed
- * time matches what someone in India would see on a clock.
+ * The backend now returns timestamps like "2026-03-25T09:18:44+05:30".
+ * new Date("...+05:30") correctly parses the offset into a UTC moment.
+ * Intl then formats that moment in Asia/Kolkata — which is exactly IST,
+ * so the result always matches the local clock in India.
  *
- * Result example: "25 Mar 2026, 03:04:13 am"
+ * Example output: "25 Mar 2026, 09:18:44 am"
  */
 function toIST(dateStr: string): string {
   if (!dateStr) return '—';

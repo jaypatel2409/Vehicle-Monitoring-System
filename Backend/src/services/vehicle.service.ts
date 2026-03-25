@@ -3,6 +3,40 @@ import type { HikCentralVehicleEvent } from '../integrations/hikcentral/types';
 import { ANPR_CAMERAS } from '../config/anprCameras';
 
 /**
+ * Convert a DB timestamp (stored as UTC/TIMESTAMPTZ) to an ISO 8601 string
+ * with the explicit IST offset (+05:30).
+ *
+ * Example output: "2026-03-25T09:18:44+05:30"
+ *
+ * Why this matters:
+ *   - PostgreSQL stores event_time as TIMESTAMPTZ (UTC internally).
+ *   - The HikCentral API sends times like "2026-03-25T09:18:44+05:30".
+ *   - Using toISOString() would return "2026-03-25T03:48:44.000Z" (UTC),
+ *     which when parsed by the browser without a timezone is treated as UTC
+ *     or local time — causing a 5h30m display error on the frontend.
+ *   - Returning the string with +05:30 embedded means new Date(...) on the
+ *     frontend always produces the correct absolute moment, and Intl formatting
+ *     with timeZone:'Asia/Kolkata' shows the correct local time.
+ */
+function toIST8601(dbTimestamp: Date | string): string {
+  const d = new Date(dbTimestamp);
+  // IST = UTC + 5:30
+  const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+  const istMs = d.getTime() + IST_OFFSET_MS;
+  const ist = new Date(istMs);
+
+  const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+  const YYYY = ist.getUTCFullYear();
+  const MM = pad(ist.getUTCMonth() + 1);
+  const DD = pad(ist.getUTCDate());
+  const HH = pad(ist.getUTCHours());
+  const mm = pad(ist.getUTCMinutes());
+  const ss = pad(ist.getUTCSeconds());
+
+  return `${YYYY}-${MM}-${DD}T${HH}:${mm}:${ss}+05:30`;
+}
+
+/**
  * Map gate name to category.
  * GATE 2 → SEZ (green sticker)
  * GATE 1 (or anything else) → KC (yellow sticker)
@@ -361,7 +395,10 @@ export async function getVehicleEvents(filters: {
     gateName: row.gate_name || 'Unknown Gate',
     cameraName: row.camera_name ?? null,
     cameraIndexCode: row.camera_index_code ?? null,
-    dateTime: new Date(row.event_time).toISOString().replace('T', ' ').substring(0, 19),
+    // Return the timestamp as a full ISO 8601 string with the +05:30 IST offset.
+    // Previously this used toISOString() which strips the offset and returns UTC,
+    // causing the frontend to display times 5h30m behind the correct IST value.
+    dateTime: toIST8601(row.event_time),
     ownerName: row.owner_name,
   }));
 }
