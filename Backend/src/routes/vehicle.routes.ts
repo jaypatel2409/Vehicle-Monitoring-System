@@ -1,52 +1,39 @@
-import { Router } from 'express';
+// Backend/src/routes/vehicle.routes.ts
+// Add the daily-snapshot route to the existing vehicle routes.
+// PATCH: Add these two lines to your EXISTING vehicle.routes.ts file.
+//
+// ─── DIFF — add these imports and route ───────────────────────────────────────
+//
+// 1. At the top of vehicle.routes.ts, add:
+//    import { getDailySnapshot } from "../controllers/dailyCounts.controller";
+//
+// 2. Before the last `export default router;` line, add:
+//    router.get("/daily-snapshot", authenticate, getDailySnapshot);
+//
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Full file shown below for clarity (replace your existing vehicle.routes.ts):
+
+import { Router } from "express";
 import {
   getStats,
   getInsideVehicles,
   getEvents,
   getCountsByDateRange,
   exportEvents,
-} from '../controllers/vehicle.controller';
-import { authenticate } from '../middleware/auth.middleware';
+} from "../controllers/vehicle.controller";
+import { getDailySnapshot } from "../controllers/dailyCounts.controller";
+import { authenticate } from "../middleware/auth.middleware";
 
 const router = Router();
 
-// All vehicle routes require authentication
 router.use(authenticate);
 
-/**
- * @route   GET /api/vehicles/stats
- * @desc    Get dashboard statistics
- * @access  Private
- */
-router.get('/stats', getStats);
-
-/**
- * @route   GET /api/vehicles/inside
- * @desc    Get currently inside vehicles
- * @access  Private
- */
-router.get('/inside', getInsideVehicles);
-
-/**
- * @route   GET /api/vehicles/events
- * @desc    Get vehicle events (historical data)
- * @access  Private
- */
-router.get('/events', getEvents);
-
-/**
- * @route   GET /api/vehicles/export
- * @desc    Export vehicle events to CSV
- * @access  Private
- */
-router.get('/export', exportEvents);
-
-/**
- * @route   GET /api/vehicles/counts
- * @desc    Get vehicle counts by date range
- * @access  Private
- */
-router.get('/counts', getCountsByDateRange);
+router.get("/stats", getStats);
+router.get("/inside", getInsideVehicles);
+router.get("/events", getEvents);
+router.get("/counts", getCountsByDateRange);
+router.get("/export", exportEvents);
+router.get("/daily-snapshot", getDailySnapshot);   // ← NEW
 
 export default router;
-

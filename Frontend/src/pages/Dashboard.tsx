@@ -217,10 +217,7 @@ const Dashboard: React.FC = () => {
       {/* Weekly bar chart + pie */}
       <div className="grid gap-6 lg:grid-cols-2">
         <EntriesExitsChart />
-        <StickerDistributionChart
-          yellowInside={stats.yellowSticker.inside}
-          greenInside={stats.greenSticker.inside}
-        />
+        <StickerDistributionChart />
       </div>
 
       {/* Recent events table */}
