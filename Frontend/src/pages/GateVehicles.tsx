@@ -271,7 +271,7 @@ const GateVehicles: React.FC = () => {
                             <table className="w-full">
                                 <thead>
                                     <tr className="border-b border-border bg-muted/30">
-                                        {['Vehicle Number', 'Vehicle Type', 'Direction', 'Gate', 'Date & Time (IST)'].map(h => (
+                                        {['Vehicle Number', 'Vehicle Type', 'Owner Name', 'Area', 'Direction', 'Gate', 'Date & Time (IST)'].map(h => (
                                             <th key={h} className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-5 py-3">
                                                 {h}
                                             </th>
@@ -281,7 +281,7 @@ const GateVehicles: React.FC = () => {
                                 <tbody className="divide-y divide-border">
                                     {paginated.length === 0 ? (
                                         <tr>
-                                            <td colSpan={5} className="px-5 py-12 text-center">
+                                            <td colSpan={7} className="px-5 py-12 text-center">
                                                 <Car className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
                                                 <p className="text-sm text-muted-foreground">No events found for the current filters.</p>
                                             </td>
@@ -301,6 +301,16 @@ const GateVehicles: React.FC = () => {
                                                     </span>
                                                 </td>
                                                 <td className="px-5 py-3">
+                                                    <span className="text-sm text-muted-foreground">
+                                                        {(event as any).ownerName || '—'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-5 py-3">
+                                                    <span className="text-sm text-muted-foreground">
+                                                        {event.area ?? (event.stickerColor === 'green' ? 'SEZ' : 'KC')}
+                                                    </span>
+                                                </td>
+                                                <td className="px-5 py-3">
                                                     <div className="flex items-center gap-1.5">
                                                         {event.direction === 'IN'
                                                             ? <ArrowDownLeft className="h-4 w-4 text-success" />
@@ -317,7 +327,8 @@ const GateVehicles: React.FC = () => {
                                                     <span className="text-sm text-muted-foreground">{event.gateName}</span>
                                                 </td>
                                                 <td className="px-5 py-3">
-                                                    <span className="text-sm text-muted-foreground">{toIST(event.dateTime)}</span>
+                                                    {/* dateTime is pre-formatted IST from backend */}
+                                                    <span className="text-sm text-muted-foreground">{event.dateTime}</span>
                                                 </td>
                                             </tr>
                                         ))

@@ -333,3 +333,42 @@ FROM information_schema.columns
 WHERE table_name IN ('vehicles', 'vehicle_events')
   AND column_name = 'vehicle_type'
 ORDER BY table_name;
+
+-- ============================================================
+-- Migration: daily_snapshot table for midnight reset counts
+-- Stores end-of-day snapshots of entry/exit/inside counts.
+-- direction VARCHAR(10) supports: 'IN', 'OUT', 'INSIDE'
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS daily_snapshot (
+    id            BIGSERIAL    PRIMARY KEY,
+    snapshot_date DATE         NOT NULL,
+    category      VARCHAR(3)   NOT NULL,
+    direction     VARCHAR(10)  NOT NULL,
+    gate_name     VARCHAR(50)  NOT NULL,
+    total_count   INTEGER      NOT NULL DEFAULT 0,
+    snapped_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    UNIQUE (snapshot_date, category, direction, gate_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_snapshot_date ON daily_snapshot (snapshot_date DESC);
+
+-- If daily_snapshot already exists with the old VARCHAR(3) direction column, widen it:
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'daily_snapshot' AND column_name = 'direction'
+          AND character_maximum_length < 10
+    ) THEN
+        ALTER TABLE daily_snapshot ALTER COLUMN direction TYPE VARCHAR(10);
+        -- Drop old check constraint if present, then add updated one
+        ALTER TABLE daily_snapshot DROP CONSTRAINT IF EXISTS daily_snapshot_direction_check;
+    END IF;
+END $$;
+
+-- Verify
+SELECT column_name, data_type, character_maximum_length
+FROM information_schema.columns
+WHERE table_name = 'daily_snapshot'
+ORDER BY ordinal_position;

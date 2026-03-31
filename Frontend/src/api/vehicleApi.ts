@@ -50,7 +50,9 @@ export interface DashboardStats {
 export interface InsideVehicle {
   vehicleNumber: string;
   category: string;
+  /** Four-Wheeler or Unknown. Two-wheelers (code 7) are filtered by backend. */
   vehicleType: 'Four-Wheeler' | 'Unknown';
+  /** Pre-formatted IST string, e.g. "25 Mar 2026, 09:18:44 am" */
   lastEventTime: string;
   lastGate?: string;
   ownerName?: string;
@@ -59,7 +61,7 @@ export interface InsideVehicle {
 export interface VehicleEvent {
   id: string;
   vehicleNumber: string;
-  /** Four-Wheeler or Unknown. Two-wheelers are filtered by the backend. */
+  /** Four-Wheeler or Unknown. Two-wheelers (code 7) are filtered by the backend. */
   vehicleType: 'Four-Wheeler' | 'Unknown';
   /** KC (Gate 1, yellow) or SEZ (Gate 2, green) */
   area: 'KC' | 'SEZ';
@@ -67,6 +69,7 @@ export interface VehicleEvent {
   direction: 'IN' | 'OUT';
   gateName: string;
   cameraName?: string;
+  /** Pre-formatted IST string, e.g. "25 Mar 2026, 09:18:44 am" */
   dateTime: string;
   ownerName?: string;
 }

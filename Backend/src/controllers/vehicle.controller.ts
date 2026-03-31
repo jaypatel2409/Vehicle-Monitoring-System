@@ -173,13 +173,13 @@ export const exportEvents = async (req: Request, res: Response): Promise<void> =
     const { createObjectCsvStringifier } = require('csv-writer');
     const csvStringifier = createObjectCsvStringifier({
       header: [
-        { id: 'vehicleNumber', title: 'Vehicle Number' },
-        { id: 'ownerName', title: 'Owner Name' },
-        { id: 'category', title: 'Category' },
-        { id: 'stickerColor', title: 'Sticker Color' },
-        { id: 'direction', title: 'Direction' },
-        { id: 'gateName', title: 'Gate Name' },
-        { id: 'dateTime', title: 'Date Time' },
+        { id: 'vehicleNumber', title: 'Vehicle Number'    },
+        { id: 'vehicleType',   title: 'Vehicle Type'      },
+        { id: 'ownerName',     title: 'Owner Name'        },
+        { id: 'area',          title: 'Area'              },
+        { id: 'direction',     title: 'Direction'         },
+        { id: 'gateName',      title: 'Gate'              },
+        { id: 'dateTime',      title: 'Date & Time (IST)' },
       ],
     });
 

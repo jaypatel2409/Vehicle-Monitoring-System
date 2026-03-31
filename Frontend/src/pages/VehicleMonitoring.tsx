@@ -38,7 +38,7 @@ import { getInsideVehicles, getDashboardStats, type InsideVehicle } from '@/api/
 
 const POLL_INTERVAL_MS = 10_000; // 10 seconds — matches backend poll cycle
 
-/** Format to IST */
+/** Format to IST — kept for lastRefreshed display (browser Date, not backend string) */
 function toIST(dateStr: string): string {
   try {
     const d = new Date(dateStr);
@@ -302,26 +302,38 @@ const VehicleMonitoring: React.FC = () => {
                   </div>
 
                   {/* Plate */}
-                  <h4 className="font-bold text-foreground text-base mb-1 tracking-wide">
+                  <h4 className="font-bold text-foreground text-base mb-3 tracking-wide">
                     {vehicle.vehicleNumber}
                   </h4>
 
-                  {/* Meta */}
-                  <div className="space-y-1 mb-3">
-                    <p className="text-xs text-muted-foreground">
-                      {vehicle.vehicleType ?? 'Unknown type'}
-                    </p>
-                    {vehicle.lastGate && (
-                      <p className="text-xs text-muted-foreground">{vehicle.lastGate}</p>
-                    )}
-                    {vehicle.ownerName && (
-                      <p className="text-xs text-muted-foreground truncate" title={vehicle.ownerName}>
-                        {vehicle.ownerName}
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground/70">
-                      Since {toIST(vehicle.lastEventTime)}
-                    </p>
+                  {/* Details grid */}
+                  <div className="space-y-1.5 mb-3">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground font-medium">Vehicle Type</span>
+                      <span className="text-foreground">{vehicle.vehicleType ?? 'Unknown'}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground font-medium">Owner</span>
+                      <span className="text-foreground truncate max-w-[55%] text-right" title={vehicle.ownerName ?? '—'}>
+                        {vehicle.ownerName ?? '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground font-medium">Area</span>
+                      <span className="text-foreground">{vehicle.category}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground font-medium">Direction</span>
+                      <span className="text-success font-medium">IN (Inside)</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground font-medium">Gate</span>
+                      <span className="text-foreground">{vehicle.lastGate ?? '—'}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground font-medium">Since (IST)</span>
+                      <span className="text-foreground">{vehicle.lastEventTime}</span>
+                    </div>
                   </div>
 
                   {/* Details dialog */}
@@ -361,11 +373,13 @@ const VehicleMonitoring: React.FC = () => {
 
                         <div className="grid gap-2">
                           {[
-                            ['Status', 'Inside Campus'],
+                            ['Vehicle Number', vehicle.vehicleNumber],
                             ['Vehicle Type', vehicle.vehicleType ?? 'Unknown'],
-                            ['Last Gate', vehicle.lastGate ?? '—'],
-                            ['Owner', vehicle.ownerName ?? '—'],
-                            ['Last Event (IST)', toIST(vehicle.lastEventTime)],
+                            ['Owner Name', vehicle.ownerName ?? '—'],
+                            ['Area', vehicle.category],
+                            ['Direction', 'IN (Currently Inside)'],
+                            ['Gate', vehicle.lastGate ?? '—'],
+                            ['Date & Time (IST)', vehicle.lastEventTime],
                           ].map(([label, value]) => (
                             <div key={label} className="flex justify-between py-2 border-b border-border last:border-0">
                               <span className="text-sm text-muted-foreground">{label}</span>

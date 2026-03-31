@@ -14,6 +14,7 @@ import {
   type DashboardStats as DashboardStatsType,
   type VehicleEvent,
 } from '@/api/vehicleApi';
+import { useSocket } from '@/hooks/useSocket';
 
 const DEFAULT_STATS: DashboardStatsType = {
   totalVehicles: 0,
@@ -42,6 +43,7 @@ const ClickableCard: React.FC<{ onClick: () => void; children: React.ReactNode; 
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
+  const socket = useSocket();
   const [stats, setStats] = useState<DashboardStatsType>(DEFAULT_STATS);
   const [events, setEvents] = useState<VehicleEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,10 +73,60 @@ const Dashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  // Live updates via WebSocket — new vehicle event → prepend to table & refresh stats
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleVehicleNew = (newEvent: any) => {
+      // newEvent is a ProcessedVehicleEvent — vehicleType is already resolved
+      // ('Four-Wheeler' | 'Unknown'). Two-wheelers (code 7) are rejected before
+      // processVehicleEvent ever returns, so they will never appear here.
+      if (!newEvent?.vehicleNumber) return;
+
+      // Re-fetch stats so dashboard counts stay accurate
+      getDashboardStats().then(setStats).catch(() => {});
+
+      const liveEntry: VehicleEvent = {
+        id: `live-${Date.now()}`,
+        vehicleNumber: newEvent.vehicleNumber,
+        vehicleType: newEvent.vehicleType === 'Four-Wheeler' ? 'Four-Wheeler' : 'Unknown',
+        ownerName: newEvent.ownerName ?? null,
+        area: newEvent.category === 'SEZ' ? 'SEZ' : 'KC',
+        stickerColor: newEvent.category === 'SEZ' ? 'green' : 'yellow',
+        direction: newEvent.eventType,
+        gateName: newEvent.gate ?? 'Unknown Gate',
+        dateTime: (() => {
+          try {
+            return new Date(newEvent.eventTime).toLocaleString('en-IN', {
+              timeZone: 'Asia/Kolkata',
+              day: '2-digit', month: 'short', year: 'numeric',
+              hour: '2-digit', minute: '2-digit', second: '2-digit',
+              hour12: true,
+            });
+          } catch { return newEvent.eventTime ?? '—'; }
+        })(),
+      };
+      setEvents(prev => [liveEntry, ...prev].slice(0, 50));
+    };
+
+    const handleStatsUpdate = (updatedStats: DashboardStatsType) => {
+      setStats(updatedStats);
+    };
+
+    socket.on('vehicle:new', handleVehicleNew);
+    socket.on('dashboard:stats', handleStatsUpdate);
+
+    return () => {
+      socket.off('vehicle:new', handleVehicleNew);
+      socket.off('dashboard:stats', handleStatsUpdate);
+    };
+  }, [socket]);
+
   const vehicleActivities = events.map(e => ({
     id: e.id,
     vehicleNumber: e.vehicleNumber,
     vehicleType: e.vehicleType ?? 'Unknown',
+    ownerName: e.ownerName ?? null,
     area: e.area ?? (e.stickerColor === 'green' ? 'SEZ' : 'KC'),
     stickerColor: e.stickerColor,
     direction: e.direction,

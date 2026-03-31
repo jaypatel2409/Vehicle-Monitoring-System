@@ -47,7 +47,13 @@ export async function processVehicleEvent(
 
   const resolvedGate = cameraMeta?.gate ?? (gateName !== 'Unknown Gate' ? gateName : null) ?? null;
   const category = mapGateToCategory(resolvedGate);
-  const vehicleType = String((event as any).vehicleType ?? 'Unknown');
+  // Map vehicleType codes: 1001 → Four-Wheeler, 7 → skip (two-wheeler), else → Unknown
+  const rawVehicleTypeCode = String((event as any).vehicleType ?? '').trim();
+  if (rawVehicleTypeCode === '7') {
+    console.log(`[VehicleService] Skipping two-wheeler (code 7): ${event.plateNo}`);
+    return null;
+  }
+  const vehicleType = rawVehicleTypeCode === '1001' ? 'Four-Wheeler' : (rawVehicleTypeCode ? 'Unknown' : 'Unknown');
 
   const movementDirection: 'IN' | 'OUT' =
     cameraMeta?.direction === 'ENTRY' ? 'IN'
@@ -209,6 +215,8 @@ export async function getDashboardStats() {
       inside: insideMap.get('SEZ') || 0,
     },
     totalInside: (insideMap.get('KC') || 0) + (insideMap.get('SEZ') || 0),
+    kcInside: insideMap.get('KC') || 0,
+    sezInside: insideMap.get('SEZ') || 0,
   };
 }
 
@@ -231,7 +239,16 @@ export async function getCurrentlyInsideVehicles(limit: number = 100) {
     vehicleNumber: row.vehicle_number,
     category: row.category,
     vehicleType: row.vehicle_type ?? 'Unknown',
-    lastEventTime: row.last_event_time,   // raw TIMESTAMPTZ — frontend formats it
+    lastEventTime: new Date(row.last_event_time).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }),
     lastGate: row.last_gate,
     ownerName: row.owner_name,
   }));
@@ -294,9 +311,18 @@ export async function getVehicleEvents(filters: {
     gateName: row.gate_name || 'Unknown Gate',
     cameraName: row.camera_name ?? null,
     cameraIndexCode: row.camera_index_code ?? null,
-    // Full ISO string (UTC) — frontend toIST() converts this correctly
-    dateTime: new Date(row.event_time).toISOString(),
-    ownerName: row.owner_name,
+    // ISO string with IST offset (+05:30) — consistent with dashboard format
+    dateTime: new Date(row.event_time).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }),
+    ownerName: row.owner_name ?? null,
   }));
 }
 
@@ -347,7 +373,16 @@ export async function getVehicleEventsForExport(filters: {
     gateName: row.gate_name || 'Unknown Gate',
     cameraName: row.camera_name ?? null,
     cameraIndexCode: row.camera_index_code ?? null,
-    dateTime: new Date(row.event_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+    dateTime: new Date(row.event_time).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }),
     ownerName: row.owner_name || 'N/A',
   }));
 }

@@ -49,6 +49,7 @@ interface Filters {
 interface VehicleEvent {
   id: string;
   vehicleNumber: string;
+  vehicleType?: string;
   ownerName?: string;
   stickerColor: 'yellow' | 'green';
   direction: 'IN' | 'OUT';
@@ -306,7 +307,7 @@ const Reports: React.FC = () => {
           <table className="w-full">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                {['Vehicle No.', 'Owner', 'Category', 'Direction', 'Gate', 'Camera', 'Date & Time'].map(h => (
+                {['Vehicle No.', 'Vehicle Type', 'Owner', 'Area', 'Direction', 'Gate', 'Date & Time (IST)'].map(h => (
                   <th key={h} className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-5 py-3 whitespace-nowrap">
                     {h}
                   </th>
@@ -326,6 +327,14 @@ const Reports: React.FC = () => {
               ) : events.map(ev => (
                 <tr key={ev.id} className="hover:bg-muted/20 transition-colors">
                   <td className="px-5 py-3 font-medium text-foreground whitespace-nowrap">{ev.vehicleNumber}</td>
+                  <td className="px-5 py-3 text-sm text-muted-foreground">
+                    <span className={cn(
+                      'text-sm font-medium',
+                      ev.vehicleType === 'Four-Wheeler' ? 'text-foreground' : 'text-muted-foreground italic'
+                    )}>
+                      {ev.vehicleType ?? 'Unknown'}
+                    </span>
+                  </td>
                   <td className="px-5 py-3 text-sm text-muted-foreground">{ev.ownerName || '—'}</td>
                   <td className="px-5 py-3">
                     <Badge variant="secondary" className={cn(
@@ -352,7 +361,6 @@ const Reports: React.FC = () => {
                     </Badge>
                   </td>
                   <td className="px-5 py-3 text-sm text-muted-foreground whitespace-nowrap">{ev.gateName}</td>
-                  <td className="px-5 py-3 text-sm text-muted-foreground">{ev.cameraName || '—'}</td>
                   <td className="px-5 py-3 text-sm text-muted-foreground whitespace-nowrap">{ev.dateTime}</td>
                 </tr>
               ))}

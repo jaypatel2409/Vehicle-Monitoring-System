@@ -3,11 +3,14 @@ export interface VehicleActivity {
   vehicleNumber: string;
   /** Four-Wheeler or Unknown. Two-wheelers are filtered by the backend. */
   vehicleType: 'Four-Wheeler' | 'Unknown';
+  /** Vehicle owner name from the API */
+  ownerName?: string | null;
   /** KC = Gate 1 / yellow sticker. SEZ = Gate 2 / green sticker. */
   area: 'KC' | 'SEZ';
   stickerColor: 'yellow' | 'green';
   direction: 'IN' | 'OUT';
   gateName: string;
+  /** Pre-formatted IST string, e.g. "25 Mar 2026, 09:18:44 am" */
   dateTime: string;
 }
 

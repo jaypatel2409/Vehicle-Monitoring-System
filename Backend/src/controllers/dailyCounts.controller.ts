@@ -10,7 +10,7 @@ const ENSURE_TABLE_SQL = `
     id            BIGSERIAL    PRIMARY KEY,
     snapshot_date DATE         NOT NULL,
     category      VARCHAR(3)   NOT NULL,
-    direction     VARCHAR(3)   NOT NULL,
+    direction     VARCHAR(10)  NOT NULL,
     gate_name     VARCHAR(50)  NOT NULL,
     total_count   INTEGER      NOT NULL DEFAULT 0,
     snapped_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),

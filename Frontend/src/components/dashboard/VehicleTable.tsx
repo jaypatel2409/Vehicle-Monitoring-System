@@ -8,36 +8,6 @@ interface VehicleTableProps {
   data: VehicleActivity[];
 }
 
-/**
- * Format a timestamp string as IST for display.
- *
- * The backend now returns timestamps like "2026-03-25T09:18:44+05:30".
- * new Date("...+05:30") correctly parses the offset into a UTC moment.
- * Intl then formats that moment in Asia/Kolkata — which is exactly IST,
- * so the result always matches the local clock in India.
- *
- * Example output: "25 Mar 2026, 09:18:44 am"
- */
-function toIST(dateStr: string): string {
-  if (!dateStr) return '—';
-  try {
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return dateStr;
-    return new Intl.DateTimeFormat('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true,
-    }).format(date);
-  } catch {
-    return dateStr;
-  }
-}
-
 export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
@@ -102,6 +72,9 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
                 Vehicle Type
               </th>
               <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-5 py-3">
+                Owner Name
+              </th>
+              <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-5 py-3">
                 Area
               </th>
               <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-5 py-3">
@@ -118,7 +91,7 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
           <tbody className="divide-y divide-border">
             {paginatedData.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={7} className="px-5 py-8 text-center text-sm text-muted-foreground">
                   No vehicle activity recorded yet.
                 </td>
               </tr>
@@ -136,6 +109,11 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
                         : 'text-muted-foreground italic'
                     )}>
                       {activity.vehicleType}
+                    </span>
+                  </td>
+                  <td className="px-5 py-4">
+                    <span className="text-sm text-muted-foreground">
+                      {(activity as any).ownerName || '—'}
                     </span>
                   </td>
                   <td className="px-5 py-4">
@@ -174,8 +152,8 @@ export const VehicleTable: React.FC<VehicleTableProps> = ({ data }) => {
                     <span className="text-sm text-muted-foreground">{activity.gateName}</span>
                   </td>
                   <td className="px-5 py-4">
-                    {/* toIST correctly converts the +05:30 timestamp to IST display */}
-                    <span className="text-sm text-muted-foreground">{toIST(activity.dateTime)}</span>
+                    {/* Backend now returns pre-formatted IST string */}
+                    <span className="text-sm text-muted-foreground">{activity.dateTime}</span>
                   </td>
                 </tr>
               ))

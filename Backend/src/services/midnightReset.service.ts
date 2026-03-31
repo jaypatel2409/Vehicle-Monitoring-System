@@ -20,7 +20,7 @@ const ENSURE_TABLE_SQL = `
     id            BIGSERIAL    PRIMARY KEY,
     snapshot_date DATE         NOT NULL,
     category      VARCHAR(3)   NOT NULL,
-    direction     VARCHAR(3)   NOT NULL,
+    direction     VARCHAR(10)  NOT NULL,
     gate_name     VARCHAR(50)  NOT NULL,
     total_count   INTEGER      NOT NULL DEFAULT 0,
     snapped_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -62,10 +62,29 @@ export async function snapshotAndReset(): Promise<void> {
         [today]
     );
 
-    // Reset today's running counters on vehicle_state
-    await query(`UPDATE vehicle_state SET entries_today = 0, exits_today = 0`);
+    // Also snapshot the "inside" counts per category at midnight
+    await query(
+        `INSERT INTO daily_snapshot (snapshot_date, category, direction, gate_name, total_count)
+     SELECT
+       $1::DATE,
+       vs.category,
+       'INSIDE',
+       COALESCE(vs.last_gate, 'Unknown Gate'),
+       COUNT(*)
+     FROM vehicle_state vs
+     WHERE vs.is_inside = TRUE
+     GROUP BY vs.category, vs.last_gate
+     ON CONFLICT (snapshot_date, category, direction, gate_name)
+     DO UPDATE SET
+       total_count = EXCLUDED.total_count,
+       snapped_at  = NOW()`,
+        [today]
+    );
 
-    console.log(`[MidnightReset] ✅ Snapshot saved for ${today} and vehicle_state counters reset.`);
+    // Reset today's running counters on vehicle_state AND set is_inside = FALSE
+    await query(`UPDATE vehicle_state SET entries_today = 0, exits_today = 0, is_inside = FALSE`);
+
+    console.log(`[MidnightReset] ✅ Snapshot saved for ${today}, vehicle_state counters reset to 0, all vehicles marked outside.`);
 }
 
 /**

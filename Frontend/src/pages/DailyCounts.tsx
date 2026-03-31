@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 interface SnapshotRow {
     snapshot_date: string;
     category: 'KC' | 'SEZ';
-    direction: 'IN' | 'OUT';
+    direction: 'IN' | 'OUT' | 'INSIDE';
     gate_name: string;
     total_count: number;
     snapped_at: string;
@@ -19,10 +19,13 @@ interface DaySummary {
     date: string;
     kcIn: number;
     kcOut: number;
+    kcInside: number;
     sezIn: number;
     sezOut: number;
+    sezInside: number;
     totalIn: number;
     totalOut: number;
+    totalInside: number;
     grandTotal: number;
 }
 
@@ -55,18 +58,20 @@ function aggregate(rows: SnapshotRow[]): DaySummary[] {
         if (!map[r.snapshot_date]) {
             map[r.snapshot_date] = {
                 date: r.snapshot_date,
-                kcIn: 0, kcOut: 0, sezIn: 0, sezOut: 0,
-                totalIn: 0, totalOut: 0, grandTotal: 0,
+                kcIn: 0, kcOut: 0, kcInside: 0,
+                sezIn: 0, sezOut: 0, sezInside: 0,
+                totalIn: 0, totalOut: 0, totalInside: 0, grandTotal: 0,
             };
         }
         const d = map[r.snapshot_date];
-        if (r.category === 'KC' && r.direction === 'IN') d.kcIn += r.total_count;
-        if (r.category === 'KC' && r.direction === 'OUT') d.kcOut += r.total_count;
-        if (r.category === 'SEZ' && r.direction === 'IN') d.sezIn += r.total_count;
-        if (r.category === 'SEZ' && r.direction === 'OUT') d.sezOut += r.total_count;
-        if (r.direction === 'IN') d.totalIn += r.total_count;
-        if (r.direction === 'OUT') d.totalOut += r.total_count;
-        d.grandTotal += r.total_count;
+        if (r.category === 'KC' && r.direction === 'IN')     { d.kcIn += r.total_count; d.totalIn += r.total_count; }
+        if (r.category === 'KC' && r.direction === 'OUT')    { d.kcOut += r.total_count; d.totalOut += r.total_count; }
+        if (r.category === 'KC' && r.direction === 'INSIDE') { d.kcInside += r.total_count; d.totalInside += r.total_count; }
+        if (r.category === 'SEZ' && r.direction === 'IN')    { d.sezIn += r.total_count; d.totalIn += r.total_count; }
+        if (r.category === 'SEZ' && r.direction === 'OUT')   { d.sezOut += r.total_count; d.totalOut += r.total_count; }
+        if (r.category === 'SEZ' && r.direction === 'INSIDE'){ d.sezInside += r.total_count; d.totalInside += r.total_count; }
+        // grandTotal counts only IN+OUT movements, not inside snapshots
+        if (r.direction === 'IN' || r.direction === 'OUT') d.grandTotal += r.total_count;
     });
     return Object.values(map).sort((a, b) => b.date.localeCompare(a.date));
 }
@@ -115,12 +120,12 @@ const DailyCounts: React.FC = () => {
 
     const totals = summaries.reduce(
         (acc, d) => ({
-            kcIn: acc.kcIn + d.kcIn, kcOut: acc.kcOut + d.kcOut,
-            sezIn: acc.sezIn + d.sezIn, sezOut: acc.sezOut + d.sezOut,
+            kcIn: acc.kcIn + d.kcIn, kcOut: acc.kcOut + d.kcOut, kcInside: acc.kcInside + d.kcInside,
+            sezIn: acc.sezIn + d.sezIn, sezOut: acc.sezOut + d.sezOut, sezInside: acc.sezInside + d.sezInside,
             totalIn: acc.totalIn + d.totalIn, totalOut: acc.totalOut + d.totalOut,
-            grand: acc.grand + d.grandTotal,
+            totalInside: acc.totalInside + d.totalInside, grand: acc.grand + d.grandTotal,
         }),
-        { kcIn: 0, kcOut: 0, sezIn: 0, sezOut: 0, totalIn: 0, totalOut: 0, grand: 0 }
+        { kcIn: 0, kcOut: 0, kcInside: 0, sezIn: 0, sezOut: 0, sezInside: 0, totalIn: 0, totalOut: 0, totalInside: 0, grand: 0 }
     );
 
     return (
@@ -190,11 +195,13 @@ const DailyCounts: React.FC = () => {
 
             {/* Summary Cards */}
             {!loading && summaries.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <SummaryCard label="Total Entries" value={totals.totalIn} icon="in" />
-                    <SummaryCard label="Total Exits" value={totals.totalOut} icon="out" />
-                    <SummaryCard label="KC Total" value={totals.kcIn + totals.kcOut} color="yellow" />
-                    <SummaryCard label="SEZ Total" value={totals.sezIn + totals.sezOut} color="green" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                    <SummaryCard label="KC Entry" value={totals.kcIn} color="yellow" icon="in" />
+                    <SummaryCard label="KC Exit" value={totals.kcOut} color="yellow" icon="out" />
+                    <SummaryCard label="KC Inside" value={totals.kcInside} color="yellow" />
+                    <SummaryCard label="SEZ Entry" value={totals.sezIn} color="green" icon="in" />
+                    <SummaryCard label="SEZ Exit" value={totals.sezOut} color="green" icon="out" />
+                    <SummaryCard label="SEZ Inside" value={totals.sezInside} color="green" />
                 </div>
             )}
 
@@ -217,36 +224,17 @@ const DailyCounts: React.FC = () => {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-border bg-muted/30">
-                                    <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-5 py-3">
-                                        Date (IST)
-                                    </th>
-                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-yellow-600 bg-yellow-sticker-light/30">
-                                        KC In
-                                    </th>
-                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-yellow-600 bg-yellow-sticker-light/30">
-                                        KC Out
-                                    </th>
-                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-yellow-700 bg-yellow-sticker-light/50">
-                                        KC Total
-                                    </th>
-                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-green-600 bg-green-sticker-light/30">
-                                        SEZ In
-                                    </th>
-                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-green-600 bg-green-sticker-light/30">
-                                        SEZ Out
-                                    </th>
-                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-green-700 bg-green-sticker-light/50">
-                                        SEZ Total
-                                    </th>
-                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-muted-foreground">
-                                        All In
-                                    </th>
-                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-muted-foreground">
-                                        All Out
-                                    </th>
-                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-foreground">
-                                        Grand Total
-                                    </th>
+                                    <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-5 py-3">Date (IST)</th>
+                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-yellow-600 bg-yellow-sticker-light/30">KC Entry</th>
+                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-yellow-600 bg-yellow-sticker-light/30">KC Exit</th>
+                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-yellow-700 bg-yellow-sticker-light/50">KC Inside</th>
+                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-green-600 bg-green-sticker-light/30">SEZ Entry</th>
+                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-green-600 bg-green-sticker-light/30">SEZ Exit</th>
+                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-green-700 bg-green-sticker-light/50">SEZ Inside</th>
+                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-muted-foreground">Total In</th>
+                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-muted-foreground">Total Out</th>
+                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-primary">Total Inside</th>
+                                    <th className="text-center text-xs font-medium uppercase tracking-wider px-4 py-3 text-foreground">Grand Total</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-border">
@@ -255,12 +243,13 @@ const DailyCounts: React.FC = () => {
                                         <td className="px-5 py-3 font-medium text-foreground">{formatDate(d.date)}</td>
                                         <td className="text-center px-4 py-3 text-yellow-600">{d.kcIn}</td>
                                         <td className="text-center px-4 py-3 text-yellow-600">{d.kcOut}</td>
-                                        <td className="text-center px-4 py-3 font-semibold text-yellow-700 bg-yellow-sticker-light/20">{d.kcIn + d.kcOut}</td>
+                                        <td className="text-center px-4 py-3 font-semibold text-yellow-700 bg-yellow-sticker-light/20">{d.kcInside}</td>
                                         <td className="text-center px-4 py-3 text-green-600">{d.sezIn}</td>
                                         <td className="text-center px-4 py-3 text-green-600">{d.sezOut}</td>
-                                        <td className="text-center px-4 py-3 font-semibold text-green-700 bg-green-sticker-light/20">{d.sezIn + d.sezOut}</td>
+                                        <td className="text-center px-4 py-3 font-semibold text-green-700 bg-green-sticker-light/20">{d.sezInside}</td>
                                         <td className="text-center px-4 py-3 text-muted-foreground">{d.totalIn}</td>
                                         <td className="text-center px-4 py-3 text-muted-foreground">{d.totalOut}</td>
+                                        <td className="text-center px-4 py-3 font-semibold text-primary">{d.totalInside}</td>
                                         <td className="text-center px-4 py-3 font-bold text-foreground text-base">{d.grandTotal}</td>
                                     </tr>
                                 ))}
@@ -268,17 +257,16 @@ const DailyCounts: React.FC = () => {
                             {/* Totals row */}
                             <tfoot>
                                 <tr className="border-t-2 border-border bg-muted/50">
-                                    <td className="px-5 py-3 font-bold text-foreground">
-                                        TOTAL ({summaries.length} day{summaries.length !== 1 ? 's' : ''})
-                                    </td>
+                                    <td className="px-5 py-3 font-bold text-foreground">TOTAL ({summaries.length} day{summaries.length !== 1 ? 's' : ''})</td>
                                     <td className="text-center px-4 py-3 font-bold text-yellow-700">{totals.kcIn}</td>
                                     <td className="text-center px-4 py-3 font-bold text-yellow-700">{totals.kcOut}</td>
-                                    <td className="text-center px-4 py-3 font-bold text-yellow-800 bg-yellow-sticker-light/30">{totals.kcIn + totals.kcOut}</td>
+                                    <td className="text-center px-4 py-3 font-bold text-yellow-800 bg-yellow-sticker-light/30">{totals.kcInside}</td>
                                     <td className="text-center px-4 py-3 font-bold text-green-700">{totals.sezIn}</td>
                                     <td className="text-center px-4 py-3 font-bold text-green-700">{totals.sezOut}</td>
-                                    <td className="text-center px-4 py-3 font-bold text-green-800 bg-green-sticker-light/30">{totals.sezIn + totals.sezOut}</td>
+                                    <td className="text-center px-4 py-3 font-bold text-green-800 bg-green-sticker-light/30">{totals.sezInside}</td>
                                     <td className="text-center px-4 py-3 font-bold text-foreground">{totals.totalIn}</td>
                                     <td className="text-center px-4 py-3 font-bold text-foreground">{totals.totalOut}</td>
+                                    <td className="text-center px-4 py-3 font-bold text-primary">{totals.totalInside}</td>
                                     <td className="text-center px-4 py-3 font-bold text-foreground text-lg">{totals.grand}</td>
                                 </tr>
                             </tfoot>
